@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Paleta base (identidad inicial de Piamonte); se podrá sobrescribir por comercio. */
+:root {
+  --fondo: #f6efe0;
+  --negro: #0f0c0c;
+  --rojo: #d4141c;
+  --crema: #f6efe0;
+}
+
+@theme inline {
+  --color-fondo: var(--fondo);
+  --color-negro: var(--negro);
+  --color-rojo: var(--rojo);
+  --color-crema: var(--crema);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-titulos: var(--font-oswald);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--fondo);
+  color: var(--negro);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
