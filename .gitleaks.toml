@@ -1,0 +1,20 @@
+# Configuración de Gitleaks (job seguridad / secretos). Extiende las reglas por defecto.
+# Toda excepción nueva debe llevar comentario con el motivo y el ticket (docs/PIPELINE.md).
+title = "Plataforma gastronómica"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Inventario de variables sin valores reales y fixtures de pruebas (dobles, sin credenciales)."
+paths = [
+  '''^\.env\.example$''',
+  '''^tests/.*\.test\.mjs$''',
+]
+
+[[allowlists]]
+description = "Valores de relleno usados por la CI para compilar sin secretos."
+regexes = [
+  '''placeholder''',
+  '''https://placeholder\.supabase\.co''',
+]

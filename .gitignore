@@ -44,3 +44,9 @@ next-env.d.ts
 .vscode/
 !.vscode/extensions.json
 !.env.example
+
+# salidas de herramientas del pipeline
+semgrep.json
+semgrep.sarif
+sbom.cdx.json
+servidor.log

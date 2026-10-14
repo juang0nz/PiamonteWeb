@@ -1,0 +1,162 @@
+# Análisis de seguridad en cada PR: secretos, SAST, dependencias y cabeceras HTTP.
+# Las herramientas corren como imágenes de contenedor fijadas por digest con
+# `docker run`; el veredicto lo da un paso propio del workflow. La publicación de
+# SARIF a Code Scanning es opcional y nunca bloquea. Ver docs/PIPELINE.md.
+name: seguridad
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seguridad-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secretos:
+    name: secretos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código con historial completo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks sobre los commits de la PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Bloquea ante cualquier hallazgo (--exit-code 1). Las excepciones viven en .gitleaks.toml.
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source . --config .gitleaks.toml \
+            --log-opts="${BASE_SHA}..${HEAD_SHA}" \
+            --redact --exit-code 1 --no-banner --verbose
+
+  sast:
+    name: sast
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # solo para publicar SARIF (opcional, no bloquea)
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Semgrep (reglas públicas; exclusiones en .semgrepignore)
+        run: |
+          set -uo pipefail
+          # p/nextjs existe en el registro pero está vacío (rules: []) al 2026-10-14; se omite.
+          docker run --rm -v "$PWD:/src" -w /src \
+            semgrep/semgrep@sha256:81474464c1f07483ba0682a44787fd93c91397419762a04abe2bafaae396304b \
+            semgrep scan --metrics=off \
+              --config p/ci --config p/typescript --config p/javascript --config p/owasp-top-ten \
+              --json --output semgrep.json --sarif-output semgrep.sarif .
+          codigo=$?
+          # Sin --error, Semgrep devuelve 0 aunque haya hallazgos; cualquier otro valor es un error de la herramienta.
+          if [ "$codigo" -ne 0 ]; then
+            echo "::error::Semgrep terminó con código $codigo."
+            exit "$codigo"
+          fi
+
+      - name: Veredicto (falla si hay hallazgos de severidad ERROR)
+        run: |
+          set -euo pipefail
+          total=$(jq '.results | length' semgrep.json)
+          errores=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep.json)
+          echo "Hallazgos totales: $total (ERROR: $errores)"
+          jq -r '.results[] | "\(.extra.severity)\t\(.check_id)\t\(.path):\(.start.line)"' semgrep.json | sort | uniq -c || true
+          if [ "$errores" -gt 0 ]; then
+            echo "::error::Semgrep encontró $errores hallazgo(s) de severidad ERROR."
+            exit 1
+          fi
+
+      - name: Publicar SARIF en Code Scanning (opcional)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  dependencias:
+    name: dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Instalar Node según .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: npm audit (solo dependencias de producción, severidad alta o crítica)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Caché de la base de vulnerabilidades de Trivy
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Trivy (lockfile, configuraciones y secretos)
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/trivy-cache"
+          docker run --rm -v "$PWD:/repo" -v "${RUNNER_TEMP}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 \
+            fs --scanners vuln,misconfig,secret --severity CRITICAL,HIGH \
+            --ignore-unfixed --exit-code 1 --skip-dirs node_modules,.next /repo
+
+  cabeceras-http:
+    name: cabeceras-http
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Instalar Node según .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar y compilar
+        run: |
+          npm ci
+          npm run build
+
+      - name: Levantar la aplicación y verificar cabeceras de /
+        run: |
+          set -euo pipefail
+          npm run start > servidor.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 30); do
+            if curl -s -o /dev/null http://localhost:3000/; then break; fi
+            sleep 1
+          done
+          cabeceras=$(curl -sI http://localhost:3000/ | tr -d '\r')
+          echo "$cabeceras"
+          kill "$pid" || true
+          fallo=0
+          comprobar() {
+            if echo "$cabeceras" | grep -qiE "$1"; then echo "OK    $2"; else echo "::error::Falta $2"; fallo=1; fi
+          }
+          comprobar '^strict-transport-security:' 'Strict-Transport-Security'
+          comprobar '^x-content-type-options: *nosniff' 'X-Content-Type-Options: nosniff'
+          comprobar '^x-frame-options:|^content-security-policy(-report-only)?:.*frame-ancestors' 'X-Frame-Options o CSP frame-ancestors'
+          comprobar '^referrer-policy:' 'Referrer-Policy'
+          exit "$fallo"

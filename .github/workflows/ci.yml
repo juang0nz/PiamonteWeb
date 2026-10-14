@@ -1,0 +1,83 @@
+# Integración continua: lint, tipos, pruebas y build en cada PR y en cada push a
+# develop/main. El build usa variables de relleno: nunca necesita secretos reales.
+# Todas las acciones están fijadas por SHA de commit; ver docs/VERSIONES.md.
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Valores de relleno para que next build no dependa de credenciales.
+  NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder
+  NEXT_PUBLIC_SITE_URL: http://localhost:3000
+
+jobs:
+  verificar:
+    name: verificar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Instalar Node según .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar dependencias exactas
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Pruebas
+        run: npm test
+
+      - name: Build (con variables de relleno)
+        run: npm run build
+
+      - name: Verificar que acciones e imágenes están fijadas por SHA/digest
+        run: bash scripts/verificar-pines.sh
+
+      - name: ShellCheck sobre scripts/**/*.sh
+        run: |
+          set -euo pipefail
+          mapfile -t archivos < <(find scripts -type f -name '*.sh' | sort)
+          if [ "${#archivos[@]}" -eq 0 ]; then
+            echo "No hay scripts .sh para analizar."
+            exit 0
+          fi
+          docker run --rm -v "$PWD:/mnt" -w /mnt \
+            koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
+            --severity=style "${archivos[@]}"
+
+  migraciones-inmutables:
+    name: migraciones-inmutables
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código con historial completo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Comprobar que ninguna migración existente fue modificada o eliminada
+        env:
+          RAMA_BASE: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/verificar-migraciones.sh "origin/${RAMA_BASE}" "${HEAD_SHA}"

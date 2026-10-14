@@ -1,0 +1,68 @@
+# Inventario de software (SBOM, CycloneDX) y análisis de vulnerabilidades del SBOM.
+# Se ejecuta a mano (workflow_dispatch) y en cada tag v*; en tags, adjunta el SBOM a la
+# GitHub Release. Solo el job de publicación tiene permiso de escritura.
+name: sbom
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  generar:
+    name: generar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Generar el SBOM CycloneDX del árbol con Syft
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src \
+            anchore/syft@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa \
+            dir:. --exclude ./node_modules --exclude ./.next -o cyclonedx-json=sbom.cdx.json
+          echo "Componentes: $(jq '.components | length' sbom.cdx.json)"
+
+      - name: Analizar el SBOM con Grype (falla en alta o crítica con corrección)
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/grype-cache"
+          docker run --rm -v "$PWD:/src" -w /src -v "${RUNNER_TEMP}/grype-cache:/.cache/grype" \
+            anchore/grype@sha256:e4a44ef45d285b829ce6efe2642980329661bd2d18eab5fc539138d4adaebbbe \
+            sbom:sbom.cdx.json --fail-on high --only-fixed
+
+      - name: Subir el SBOM como artefacto
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ github.ref_name }}
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+  publicar-en-release:
+    name: publicar-en-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: generar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # crear la release si no existe y adjuntar el SBOM
+    steps:
+      - name: Descargar el SBOM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom-${{ github.ref_name }}
+
+      - name: Adjuntar el SBOM a la GitHub Release del tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ETIQUETA: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$ETIQUETA" > /dev/null 2>&1; then
+            gh release create "$ETIQUETA" --title "$ETIQUETA" --generate-notes
+          fi
+          gh release upload "$ETIQUETA" sbom.cdx.json --clobber

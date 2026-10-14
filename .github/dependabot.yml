@@ -1,0 +1,43 @@
+# Actualizaciones automáticas de dependencias. Las PRs apuntan a develop y siguen el
+# flujo normal de revisión (ci + seguridad). Los majors de next/react/react-dom se
+# actualizan a mano por su impacto.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Montevideo
+    open-pull-requests-limit: 5
+    # Espera unos días tras cada publicación: evita versiones recién subidas que luego se retiran.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "PIA-0"
+    groups:
+      menores-y-parches:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Montevideo
+    commit-message:
+      prefix: "PIA-0"
+    cooldown:
+      default-days: 7

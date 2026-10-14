@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RAMA_ORIGEN: ${{ github.head_ref }}
+      RAMA_BASE: ${{ github.base_ref }}
       # Fuerza comparación sensible a mayúsculas en los rangos [a-z] de la expresión regular.
       LC_ALL: C
     steps:
@@ -34,7 +35,7 @@ jobs:
             exit 0
           fi
           # Back-merge de main a develop después de una release/hotfix.
-          if [[ "$RAMA_ORIGEN" == "main" && "${{ github.base_ref }}" == "develop" ]]; then
+          if [[ "$RAMA_ORIGEN" == "main" && "$RAMA_BASE" == "develop" ]]; then
             echo "Back-merge de main a develop permitido."
             exit 0
           fi

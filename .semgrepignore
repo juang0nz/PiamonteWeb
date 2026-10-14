@@ -1,0 +1,12 @@
+# Rutas excluidas del análisis SAST (job seguridad / sast). Toda exclusión nueva lleva
+# comentario con motivo y ticket (docs/PIPELINE.md).
+# Migraciones SQL: no son código de aplicación.
+supabase/
+# Recursos estáticos y documentación.
+public/
+docs/
+# Dependencias y salida de compilación.
+node_modules/
+.next/
+# Fixtures de pruebas con dobles.
+tests/
