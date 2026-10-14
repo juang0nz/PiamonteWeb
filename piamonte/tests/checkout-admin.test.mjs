@@ -23,6 +23,9 @@ function cargar(archivo, modulos, globales = {}) {
   });
   return modulo.exports;
 }
+const accesoEmpleados = cargar("src/lib/admin/accesoEmpleados.ts", { "server-only": {} }, {
+  process: { env: { NEXT_PUBLIC_SITE_URL: "http://localhost:3000" } },
+});
 const celular = cargar("src/lib/checkout/celular.ts", {});
 const checkout = cargar("src/lib/checkout/tipos.ts", {
   "./celular": celular,
@@ -35,6 +38,305 @@ const NextResponse = {
   json: (body, opciones = {}) => ({ body, status: opciones.status ?? 200, headers: opciones.headers }),
   next: ({ request }) => ({ request, cookies: { set() {} } }),
 };
+
+const ID_EMPLEADO = "00000000-0000-4000-8000-000000000002";
+const ID_COMERCIO = "00000000-0000-4000-8000-000000000001";
+const ID_OPERACION = "00000000-0000-4000-8000-000000000003";
+
+function clienteCuentaEmpleado({ vinculos, superAdmin = null, fallo = false } = {}) {
+  return {
+    from: tabla => {
+      const resultado = {
+        data: tabla === "super_admins" ? superAdmin
+          : tabla === "comercios" ? { id: ID_COMERCIO }
+          : vinculos ?? [{ comercio_id: ID_COMERCIO, rol: "empleado", activo: true }],
+        error: fallo ? { code: "42501" } : null,
+      };
+      const consulta = {
+        select: () => consulta, eq: () => consulta,
+        maybeSingle: async () => resultado,
+        then: (resolver, rechazar) => Promise.resolve(resultado).then(resolver, rechazar),
+      };
+      return consulta;
+    },
+  };
+}
+
+function escenarioCorreoEmpleado(opciones = {}) {
+  const llamadas = [];
+  const privado = clienteCuentaEmpleado(opciones);
+  privado.auth = {
+    admin: {
+      getUserById: async id => {
+        llamadas.push(["usuario", id]);
+        return { data: { user: {
+          id, email: "registrado@ejemplo.test",
+          email_confirmed_at: opciones.confirmado ? "2026-10-01" : undefined,
+          banned_until: opciones.bloqueado ? "2099-01-01" : undefined,
+        } }, error: null };
+      },
+      inviteUserByEmail: async (email, configuracion) => {
+        llamadas.push(["invitacion", email, configuracion]);
+        return { data: { user: { id: ID_EMPLEADO } }, error: opciones.errorEnvio ?? null };
+      },
+    },
+    resetPasswordForEmail: async (email, configuracion) => {
+      llamadas.push(["recuperacion", email, configuracion]);
+      if (opciones.excepcionEnvio) throw new Error("No registrar el contenido de esta excepción");
+      return { error: opciones.errorEnvio ?? null };
+    },
+  };
+  const ruta = cargar("src/app/api/admin/empleados/acceso/route.ts", {
+    "next/server": { NextResponse },
+    "@/lib/admin/auth": { obtenerEstadoAccesoAdmin: async () => opciones.acceso ?? ({
+      autenticado: true, autorizado: true, rol: "admin", comercioId: ID_COMERCIO,
+    }) },
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
+    "@/lib/supabase/private": { createPrivateClient: () => privado },
+    "@/lib/supabase/server": { createClient: async () => ({
+      rpc: async (nombre, parametros) => {
+        llamadas.push([nombre, parametros]);
+        return nombre === "admin_iniciar_acceso_empleado_auditado"
+          ? { data: opciones.repetida ? false : true, error: opciones.errorAuditoria ?? null }
+          : { data: true, error: opciones.errorCierre ?? null };
+      },
+    }) },
+  });
+  const solicitar = (datos = {}, origin = "http://localhost:3000") => ruta.POST(new Request(
+    "http://localhost:3000/api/admin/empleados/acceso", {
+      method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: ID_EMPLEADO, tipo: "recuperacion", operacionId: ID_OPERACION, ...datos,
+      }),
+    },
+  ));
+  return { llamadas, solicitar };
+}
+
+test("Acceso por correo exige sesión, administrador y origen del panel", async () => {
+  for (const [acceso, status] of [
+    [{ autenticado: false }, 401],
+    [{ autenticado: true, autorizado: false }, 403],
+    [{ autenticado: true, autorizado: true, rol: "empleado" }, 403],
+  ]) {
+    const escenario = escenarioCorreoEmpleado({ acceso });
+    assert.equal((await escenario.solicitar()).status, status);
+    assert.equal(escenario.llamadas.length, 0);
+  }
+  const escenario = escenarioCorreoEmpleado();
+  assert.equal((await escenario.solicitar({}, "https://otro.test")).status, 403);
+  assert.equal((await escenario.solicitar({ userId: "inválido" })).status, 400);
+  assert.equal(escenario.llamadas.length, 0);
+});
+
+test("Acceso bloquea owner, admin, operador, Super Admin, inactivos y cuentas de otros comercios", async () => {
+  for (const opciones of [
+    ...["owner", "admin", "operador"].map(rol => ({
+      vinculos: [{ comercio_id: ID_COMERCIO, rol, activo: true }],
+    })),
+    { superAdmin: { user_id: ID_EMPLEADO } },
+    { vinculos: [{ comercio_id: "otro", rol: "empleado", activo: true }] },
+    { vinculos: [{ comercio_id: ID_COMERCIO, rol: "empleado", activo: false }] },
+    { vinculos: [
+      { comercio_id: ID_COMERCIO, rol: "empleado", activo: true },
+      { comercio_id: "otro", rol: "empleado", activo: true },
+    ] },
+  ]) {
+    const escenario = escenarioCorreoEmpleado(opciones);
+    assert.equal((await escenario.solicitar()).status, 403);
+    assert.equal(escenario.llamadas.length, 0);
+  }
+  const escenario = escenarioCorreoEmpleado({ fallo: true });
+  assert.equal((await escenario.solicitar()).status, 503);
+  assert.equal(escenario.llamadas.length, 0);
+});
+
+test("Recuperación usa solo correo registrado, URL confiable y auditoría antes y después del envío", async () => {
+  const escenario = escenarioCorreoEmpleado({ confirmado: true });
+  const resultado = await escenario.solicitar({ email: "ignorado@otro.test", comercioId: "otro" });
+  assert.equal(resultado.status, 200);
+  assert.deepEqual(escenario.llamadas.map(llamada => llamada[0]), [
+    "usuario", "admin_iniciar_acceso_empleado_auditado", "recuperacion",
+    "admin_finalizar_acceso_empleado_auditado",
+  ]);
+  const inicio = escenario.llamadas[1][1];
+  assert.equal(inicio.p_comercio_id, ID_COMERCIO);
+  assert.equal(inicio.p_user_id, ID_EMPLEADO);
+  assert.equal(escenario.llamadas[2][1], "registrado@ejemplo.test");
+  assert.equal(escenario.llamadas[2][2].redirectTo, "http://localhost:3000/admin/acceso");
+  assert.equal(escenario.llamadas[3][1].p_enviado, true);
+  assert.equal(JSON.stringify(resultado).includes("password"), false);
+});
+
+test("Reinvita una cuenta pendiente sin crear ni asignar usuarios y rechaza correo ya confirmado", async () => {
+  const escenario = escenarioCorreoEmpleado();
+  assert.equal((await escenario.solicitar({ tipo: "invitacion" })).status, 200);
+  assert.equal(escenario.llamadas[2][0], "invitacion");
+  assert.equal(escenario.llamadas[2][1], "registrado@ejemplo.test");
+  assert.equal((await escenarioCorreoEmpleado({ confirmado: true })
+    .solicitar({ tipo: "invitacion" })).status, 409);
+  assert.equal((await escenarioCorreoEmpleado({ bloqueado: true }).solicitar()).status, 409);
+});
+
+test("No envía sin auditoría, ante repetición o antes del intervalo permitido", async () => {
+  for (const [opciones, status] of [
+    [{ errorAuditoria: { code: "PGRST202" } }, 503],
+    [{ errorAuditoria: { code: "54000" } }, 429],
+    [{ repetida: true }, 409],
+  ]) {
+    const escenario = escenarioCorreoEmpleado(opciones);
+    assert.equal((await escenario.solicitar()).status, status);
+    assert.equal(escenario.llamadas.some(llamada => llamada[0] === "recuperacion"), false);
+  }
+});
+
+test("Fallos de envío se auditan y fallos del cierre no se presentan como éxito", async () => {
+  for (const opciones of [{ errorEnvio: { code: "over_email_send_rate_limit" } }, { excepcionEnvio: true }]) {
+    const escenario = escenarioCorreoEmpleado(opciones);
+    assert.equal((await escenario.solicitar()).status, 502);
+    assert.equal(escenario.llamadas.at(-1)[1].p_enviado, false);
+  }
+  const escenario = escenarioCorreoEmpleado({ errorCierre: { code: "42501" } });
+  const resultado = await escenario.solicitar();
+  assert.equal(resultado.status, 503);
+  assert.match(resultado.body.error, /aceptó el envío/);
+});
+
+test("Estado de acceso separa correo, invitación, bloqueo e ingreso sin exponer secretos", () => {
+  const estado = accesoEmpleados.estadoAccesoEmpleado({
+    invited_at: "2026-10-01", email_confirmed_at: undefined, last_sign_in_at: undefined,
+    recovery_sent_at: "2026-10-02", banned_until: "2099-01-01",
+    password: "no-exponer", access_token: "no-exponer",
+  });
+  assert.equal(estado.cuentaExiste, true);
+  assert.equal(estado.correoConfirmado, false);
+  assert.equal(estado.ultimoIngresoEn, null);
+  assert.equal(estado.bloqueado, true);
+  assert.equal(JSON.stringify(estado).includes("no-exponer"), false);
+  assert.equal(accesoEmpleados.estadoAccesoEmpleado().cuentaExiste, false);
+});
+
+test("La URL de acceso usa configuración explícita, HTTPS y nunca un destino del navegador", () => {
+  for (const valor of [undefined, "no-es-url", "http://produccion.test", "https://usuario:clave@ejemplo.test"]) {
+    const modulo = cargar("src/lib/admin/accesoEmpleados.ts", { "server-only": {} }, {
+      process: { env: { NEXT_PUBLIC_SITE_URL: valor } },
+    });
+    assert.throws(() => modulo.urlAccesoEmpleado());
+  }
+  const modulo = cargar("src/lib/admin/accesoEmpleados.ts", { "server-only": {} }, {
+    process: { env: { NEXT_PUBLIC_SITE_URL: "https://ejemplo.test/ruta?ignorar=1" } },
+  });
+  assert.equal(modulo.urlAccesoEmpleado(), "https://ejemplo.test/admin/acceso");
+});
+
+test("SQL de acceso audita intención y resultado, restringe al empleado y no escribe Auth ni roles", () => {
+  const sql = fs.readFileSync(path.join(raiz, "database/acceso_empleados.sql"), "utf8");
+  assert.match(sql, /auth\.uid\(\) is null/);
+  assert.match(sql, /rol = 'empleado' and activo/);
+  assert.match(sql, /comercio_id <> p_comercio_id or rol <> 'empleado'/);
+  assert.match(sql, /from public\.super_admins where user_id = p_user_id/);
+  assert.match(sql, /pg_advisory_xact_lock/);
+  assert.match(sql, /interval '60 seconds'/);
+  assert.match(sql, /'acceso_solicitado'/);
+  assert.match(sql, /'acceso_correo_enviado'.*'acceso_correo_fallido'/);
+  assert.match(sql, /from public, anon, authenticated, service_role/);
+  assert.doesNotMatch(sql, /(?:update|delete from|insert into)\s+(?:auth\.|public\.admin_comercios)/i);
+});
+
+function escenarioConfirmacionEmpleado(opciones = {}) {
+  const llamadas = [];
+  const logs = [];
+  const privado = clienteCuentaEmpleado(opciones);
+  const sesion = {
+    verifyOtp: async datos => {
+      llamadas.push(["verificar", datos.type]);
+      return { data: { user: { id: ID_EMPLEADO } }, error: opciones.errorEnlace ?? null };
+    },
+    setSession: async () => {
+      llamadas.push(["sesion"]);
+      return { data: { user: { id: ID_EMPLEADO } }, error: opciones.errorEnlace ?? null };
+    },
+    getUser: async () => ({ data: { user: { id: ID_EMPLEADO } }, error: opciones.errorIdentidad ?? null }),
+    updateUser: async datos => {
+      llamadas.push(["password", datos]);
+      return { error: opciones.errorPassword ?? null };
+    },
+    signOut: async datos => {
+      llamadas.push(["salir", datos]);
+      return { error: null };
+    },
+  };
+  const ruta = cargar("src/app/admin/acceso/confirmar/route.ts", {
+    "next/server": { NextResponse },
+    "@/lib/comercio": { SLUG_COMERCIO: "piamonte" },
+    "@supabase/supabase-js": { createClient: (_url, clave, configuracion) => {
+      assert.equal(clave, "clave-publica");
+      assert.equal(configuracion.auth.persistSession, false);
+      return { auth: sesion };
+    } },
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
+    "@/lib/supabase/private": { createPrivateClient: () => privado },
+  }, {
+    process: { env: {
+      NEXT_PUBLIC_SUPABASE_URL: "https://ejemplo.supabase.co",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "clave-publica",
+    } },
+    console: { error: (...datos) => logs.push(datos) },
+  });
+  const solicitar = (datos = {}) => ruta.POST(new Request("http://localhost:3000/admin/acceso/confirmar", {
+    method: "POST", headers: { Origin: "http://localhost:3000", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tokenHash: "secreto-enlace", tipo: "recovery",
+      password: "secreto-personal", confirmacion: "secreto-personal", ...datos,
+    }),
+  }));
+  return { llamadas, logs, solicitar };
+}
+
+test("Empleado establece su contraseña con el enlace y cliente público aislado, sin cookies administrativas", async () => {
+  for (const datos of [
+    {},
+    { tipo: "invite" },
+    { tokenHash: null, accessToken: "secreto-acceso", refreshToken: "secreto-renovacion" },
+  ]) {
+    const escenario = escenarioConfirmacionEmpleado();
+    const resultado = await escenario.solicitar(datos);
+    assert.equal(resultado.status, 200);
+    assert.equal(escenario.llamadas.at(-2)[0], "password");
+    assert.deepEqual(Object.keys(escenario.llamadas.at(-2)[1]), ["password"]);
+    assert.equal(escenario.llamadas.at(-1)[0], "salir");
+    assert.equal(JSON.stringify(resultado).includes("secreto"), false);
+    assert.equal(JSON.stringify(escenario.logs).includes("secreto"), false);
+  }
+});
+
+test("Confirmación rechaza contraseñas inválidas y enlaces ausentes antes de consumirlos", async () => {
+  for (const datos of [
+    { password: "corta" }, { confirmacion: "distinta" },
+    { password: "x".repeat(73), confirmacion: "x".repeat(73) },
+    { tokenHash: null }, { tipo: "signup" },
+  ]) {
+    const escenario = escenarioConfirmacionEmpleado();
+    assert.equal((await escenario.solicitar(datos)).status, 400);
+    assert.equal(escenario.llamadas.length, 0);
+  }
+});
+
+test("Confirmación no cambia contraseñas ante enlaces vencidos, identidad no válida o cuentas ajenas", async () => {
+  for (const [opciones, status] of [
+    [{ errorEnlace: { code: "otp_expired" } }, 401],
+    [{ errorIdentidad: { code: "bad_jwt" } }, 401],
+    [{ vinculos: [{ comercio_id: ID_COMERCIO, rol: "owner", activo: true }] }, 403],
+    [{ vinculos: [{ comercio_id: "otro", rol: "empleado", activo: true }] }, 403],
+    [{ vinculos: [{ comercio_id: ID_COMERCIO, rol: "empleado", activo: false }] }, 403],
+    [{ superAdmin: { user_id: ID_EMPLEADO } }, 403],
+  ]) {
+    const escenario = escenarioConfirmacionEmpleado(opciones);
+    assert.equal((await escenario.solicitar()).status, status);
+    assert.equal(escenario.llamadas.some(llamada => llamada[0] === "password"), false);
+    assert.equal(JSON.stringify(escenario.logs).includes("secreto"), false);
+  }
+});
 function pedido(cambios = {}) {
   return {
     id: "pedido", numero: 1, creado_en: "2026-10-01T10:00:00Z",
@@ -372,6 +674,7 @@ test("Empleado no puede cancelar pedidos antes de invocar la RPC", async () => {
 });
 test("API Empleados rechaza al rol Empleado antes de usar service_role", async () => {
   const ruta = cargar("src/app/api/admin/empleados/route.ts", {
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
     "next/server": { NextResponse },
     "@/lib/admin/auth": {
       obtenerEstadoAccesoAdmin: async () => ({
@@ -417,6 +720,7 @@ test("API Empleados lista sólo vínculos del comercio y rol Empleado", async ()
   };
   const privado = { from: () => consulta };
   const ruta = cargar("src/app/api/admin/empleados/route.ts", {
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
     "next/server": { NextResponse },
     "@/lib/admin/auth": {
       obtenerEstadoAccesoAdmin: async () => ({
@@ -473,6 +777,7 @@ test("API Empleados asigna usuarios existentes mediante RPC auditada", async () 
     },
   };
   const ruta = cargar("src/app/api/admin/empleados/route.ts", {
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
     "next/server": { NextResponse },
     "@/lib/admin/auth": {
       obtenerEstadoAccesoAdmin: async () => ({
@@ -525,11 +830,13 @@ test("API Empleados asigna usuarios existentes mediante RPC auditada", async () 
 test("API Empleados completa invitaciones nuevas con Auth y RPC auditadas", async () => {
   const llamadasRpc = [];
   let correoInvitado;
+  let destinoInvitacion;
   const privado = {
     auth: {
       admin: {
-        inviteUserByEmail: async email => {
+        inviteUserByEmail: async (email, configuracion) => {
           correoInvitado = email;
+          destinoInvitacion = configuracion.redirectTo;
           return {
             data: {
               user: {
@@ -544,6 +851,7 @@ test("API Empleados completa invitaciones nuevas con Auth y RPC auditadas", asyn
     },
   };
   const ruta = cargar("src/app/api/admin/empleados/route.ts", {
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
     "next/server": { NextResponse },
     "@/lib/admin/auth": {
       obtenerEstadoAccesoAdmin: async () => ({
@@ -578,6 +886,7 @@ test("API Empleados completa invitaciones nuevas con Auth y RPC auditadas", asyn
   const respuesta = await ruta.POST(request);
   assert.equal(respuesta.status, 201);
   assert.equal(correoInvitado, "invitado@piamonte.test");
+  assert.equal(destinoInvitacion, "http://localhost:3000/admin/acceso");
   assert.deepEqual(
     llamadasRpc.map(({ nombre }) => nombre),
     [
@@ -593,6 +902,7 @@ test("API Empleados completa invitaciones nuevas con Auth y RPC auditadas", asyn
 test("API Empleados cambia estados mediante la RPC del comercio autorizado", async () => {
   let llamadaRpc;
   const ruta = cargar("src/app/api/admin/empleados/route.ts", {
+    "@/lib/admin/accesoEmpleados": accesoEmpleados,
     "next/server": { NextResponse },
     "@/lib/admin/auth": {
       obtenerEstadoAccesoAdmin: async () => ({

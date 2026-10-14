@@ -6,6 +6,14 @@ type Empleado = {
   userId: string;
   email: string;
   activo: boolean;
+  acceso: {
+    cuentaExiste: boolean;
+    correoConfirmado: boolean;
+    invitacionEnviadaEn: string | null;
+    recuperacionEnviadaEn: string | null;
+    ultimoIngresoEn: string | null;
+    bloqueado: boolean;
+  };
 };
 
 type RespuestaListado = {
@@ -21,6 +29,10 @@ export function PanelEmpleadosAdmin() {
   const [actualizando, setActualizando] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
+
+  function fecha(valor: string) {
+    return new Date(valor).toLocaleString("es-UY", { timeZone: "America/Montevideo" });
+  }
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -132,6 +144,35 @@ export function PanelEmpleadosAdmin() {
     }
   }
 
+  async function gestionarAcceso(empleado: Empleado, tipo: "invitacion" | "recuperacion") {
+    if (actualizando) return;
+    if (!window.confirm(
+      `¿Enviar ${tipo === "invitacion" ? "una invitación" : "un enlace para restablecer la contraseña"} a ${empleado.email}?`,
+    )) return;
+    setActualizando(empleado.userId);
+    setError(null);
+    setMensaje(null);
+    try {
+      const respuesta = await fetch("/api/admin/empleados/acceso", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ userId: empleado.userId, tipo, operacionId: crypto.randomUUID() }),
+      });
+      const cuerpo: { error?: string; mensaje?: string } = await respuesta.json();
+      if (!respuesta.ok || !cuerpo.mensaje) {
+        throw new Error(cuerpo.error ?? "No pudimos procesar el correo de acceso.");
+      }
+      setMensaje(cuerpo.mensaje);
+      await cargar();
+    } catch (errorDesconocido) {
+      setError(errorDesconocido instanceof Error
+        ? errorDesconocido.message : "No pudimos procesar el correo de acceso.");
+    } finally {
+      setActualizando(null);
+    }
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
       <section className="self-start rounded-3xl border border-negro/10 bg-white p-5 shadow-[0_20px_45px_rgba(0,0,0,0.08)]">
@@ -185,14 +226,19 @@ export function PanelEmpleadosAdmin() {
         <h2 className="mt-1 font-titulos text-2xl uppercase tracking-wide text-negro">
           Empleados del comercio
         </h2>
+        <p className="mt-2 text-sm text-negro/60">
+          El vínculo habilita los permisos del comercio. La confirmación del correo
+          y los ingresos se verifican por separado. Un envío no prueba recepción
+          ni aceptación. Las cuentas compartidas o con otros privilegios no admiten estas acciones.
+        </p>
 
         {mensaje && (
-          <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <p role="status" className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {mensaje}
           </p>
         )}
         {error && (
-          <p className="mt-4 rounded-xl bg-rojo/10 px-4 py-3 text-sm text-rojo">
+          <p role="alert" className="mt-4 rounded-xl bg-rojo/10 px-4 py-3 text-sm text-rojo">
             {error}
           </p>
         )}
@@ -208,8 +254,9 @@ export function PanelEmpleadosAdmin() {
             {empleados.map((empleado) => (
               <li
                 key={empleado.userId}
-                className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="space-y-4 p-4"
               >
+                <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-negro">
                     {empleado.email}
@@ -219,7 +266,7 @@ export function PanelEmpleadosAdmin() {
                       empleado.activo ? "text-emerald-700" : "text-rojo"
                     }`}
                   >
-                    {empleado.activo ? "Activo" : "Inactivo"}
+                    {empleado.activo ? "Vínculo habilitado" : "Vínculo deshabilitado"}
                   </p>
                 </div>
 
@@ -243,6 +290,43 @@ export function PanelEmpleadosAdmin() {
                     }`}
                   />
                 </button>
+                </div>
+                <section aria-label={`Acceso de ${empleado.email}`} className="rounded-xl bg-fondo p-3">
+                  <h3 className="text-sm font-bold text-negro">Acceso</h3>
+                  <div className="mt-2 space-y-1 text-xs text-negro/70">
+                    <p>{!empleado.acceso.cuentaExiste ? "Cuenta de Auth no disponible."
+                      : empleado.acceso.bloqueado ? "Cuenta bloqueada en Supabase Auth."
+                      : empleado.acceso.correoConfirmado ? "Correo confirmado."
+                      : "Correo pendiente de confirmación."}</p>
+                    {empleado.acceso.invitacionEnviadaEn && (
+                      <p>Invitación registrada en Auth: {fecha(empleado.acceso.invitacionEnviadaEn)}.</p>
+                    )}
+                    {empleado.acceso.recuperacionEnviadaEn && (
+                      <p>Recuperación registrada en Auth: {fecha(empleado.acceso.recuperacionEnviadaEn)}.</p>
+                    )}
+                    <p>{empleado.acceso.ultimoIngresoEn
+                      ? `Último ingreso a la cuenta: ${fecha(empleado.acceso.ultimoIngresoEn)}.`
+                      : "Sin ingresos registrados en Auth."}</p>
+                    <p>La confirmación del correo no garantiza que ya haya una contraseña configurada.</p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button"
+                      disabled={actualizando !== null || !empleado.activo || !empleado.acceso.cuentaExiste ||
+                        empleado.acceso.bloqueado || empleado.acceso.correoConfirmado}
+                      onClick={() => void gestionarAcceso(empleado, "invitacion")}
+                      className="rounded-full border border-negro/20 px-4 py-2 text-xs font-semibold text-negro hover:bg-white disabled:opacity-40">
+                      {empleado.acceso.invitacionEnviadaEn ? "Reenviar invitación" : "Enviar invitación"}
+                    </button>
+                    <button type="button"
+                      disabled={actualizando !== null || !empleado.activo ||
+                        !empleado.acceso.cuentaExiste || empleado.acceso.bloqueado}
+                      onClick={() => void gestionarAcceso(empleado, "recuperacion")}
+                      className="rounded-full bg-rojo px-4 py-2 text-xs font-semibold text-white hover:bg-negro disabled:opacity-40">
+                      Restablecer contraseña
+                    </button>
+                  </div>
+                  {actualizando === empleado.userId && <p role="status" className="mt-2 text-xs text-negro/60">Procesando…</p>}
+                </section>
               </li>
             ))}
           </ul>

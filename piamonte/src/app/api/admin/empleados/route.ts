@@ -3,6 +3,7 @@ import { obtenerEstadoAccesoAdmin } from "@/lib/admin/auth";
 import { createPrivateClient } from "@/lib/supabase/private";
 import { createClient } from "@/lib/supabase/server";
 import { listarUsuariosAuth } from "@/lib/super-admin/usuarios";
+import { estadoAccesoEmpleado, urlAccesoEmpleado } from "@/lib/admin/accesoEmpleados";
 
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_VALIDO =
@@ -121,15 +122,16 @@ export async function GET() {
     );
   }
 
-  const correos = new Map(
-    usuarios.map((usuario) => [usuario.id, usuario.email ?? null]),
+  const cuentas = new Map(
+    usuarios.map((usuario) => [usuario.id, usuario]),
   );
   return NextResponse.json(
     {
       empleados: ((data ?? []) as VinculoEmpleado[]).map((vinculo) => ({
         userId: vinculo.user_id,
-        email: correos.get(vinculo.user_id) ?? "Correo no disponible",
+        email: cuentas.get(vinculo.user_id)?.email ?? "Correo no disponible",
         activo: vinculo.activo,
+        acceso: estadoAccesoEmpleado(cuentas.get(vinculo.user_id)),
       })),
     },
     {
@@ -226,6 +228,16 @@ export async function POST(request: Request) {
       return respuestaErrorRpc(error, "asignar el empleado");
     }
   } else {
+    let redirectTo: string;
+    try {
+      redirectTo = urlAccesoEmpleado();
+    } catch {
+      console.error("Falta configurar la URL pública de acceso de empleados.");
+      return NextResponse.json(
+        { error: "Falta configurar NEXT_PUBLIC_SITE_URL para las invitaciones." },
+        { status: 503 },
+      );
+    }
     const { error: inicioError } = await sesion.rpc(
       "admin_iniciar_invitacion_empleado_auditada",
       {
@@ -239,12 +251,11 @@ export async function POST(request: Request) {
     }
 
     const { data, error } =
-      await privado.auth.admin.inviteUserByEmail(email);
+      await privado.auth.admin.inviteUserByEmail(email, { redirectTo });
     if (error || !data.user) {
       console.error("Error de Auth Admin al invitar empleado:", {
         status: error?.status,
         code: error?.code,
-        message: error?.message,
       });
       const { error: cierreError } = await sesion.rpc(
         "admin_marcar_invitacion_empleado_fallida",
@@ -301,7 +312,7 @@ export async function POST(request: Request) {
     {
       ok: true,
       mensaje: invitacionEnviada
-        ? "Invitación enviada y acceso de Empleado asignado."
+        ? "Invitación solicitada y vínculo de Empleado asignado. La aceptación del correo todavía no está verificada."
         : "El usuario existente fue asignado como Empleado.",
     },
     { status: 201 },

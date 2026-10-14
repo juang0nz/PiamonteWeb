@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EVENTO_PEDIDOS_NUEVOS } from "@/lib/admin/notificacionesPedidos";
+import { normalizarCelularUruguayo } from "@/lib/checkout/celular";
+import { MENSAJE_PEDIDO_ACEPTADO_WHATSAPP } from "@/lib/comercio";
 
 type EstadoPedido =
   | "pendiente"
@@ -144,6 +146,10 @@ export function PanelPedidosAdmin({
     null,
   );
   const [actualizandoId, setActualizandoId] = useState<string | null>(null);
+  const [avisoWhatsApp, setAvisoWhatsApp] = useState<{
+    numeroPedido: number;
+    url: string | null;
+  } | null>(null);
 
   const cargarPedidos = useCallback(async (mostrarCarga = true) => {
     if (mostrarCarga) setCargando(true);
@@ -246,6 +252,21 @@ export function PanelPedidosAdmin({
         );
       }
       setMensajeOk(cuerpo?.mensaje ?? "Estado actualizado correctamente.");
+      if (estadoActual === "pendiente" && nuevoEstado === "en_preparacion") {
+        const telefono = typeof pedido.clienteTelefono === "string"
+          ? normalizarCelularUruguayo(pedido.clienteTelefono) : null;
+        const url = telefono
+          ? `https://wa.me/${telefono.slice(1)}?text=${encodeURIComponent(MENSAJE_PEDIDO_ACEPTADO_WHATSAPP)}`
+          : null;
+        setAvisoWhatsApp({ numeroPedido: pedido.numero, url });
+        if (url) {
+          try {
+            window.open(url, "_blank", "noopener,noreferrer");
+          } catch {
+            console.warn("No se pudo abrir WhatsApp. El aviso manual sigue disponible en el panel.");
+          }
+        }
+      }
       await cargarPedidos();
     } catch (errorDesconocido) {
       setError(
@@ -300,6 +321,29 @@ export function PanelPedidosAdmin({
           <p className="rounded-xl bg-rojo/10 px-4 py-3 text-sm text-rojo">
             {error}
           </p>
+        )}
+        {avisoWhatsApp && (
+          <div role="status" className="rounded-2xl border border-negro/10 bg-white p-4 text-sm text-negro/80">
+            <p className="font-semibold text-negro">
+              Aviso del pedido #{avisoWhatsApp.numeroPedido}
+            </p>
+            <p className="mt-1">
+              {avisoWhatsApp.url
+                ? "El pedido fue aceptado. Confirmá manualmente el envío en WhatsApp. Si no se abrió, usá el botón."
+                : "El pedido fue aceptado, pero no tiene un celular uruguayo válido registrado. No se pudo abrir WhatsApp."}
+            </p>
+            {avisoWhatsApp.url ? (
+              <a href={avisoWhatsApp.url} target="_blank" rel="noopener noreferrer"
+                className="mt-3 inline-block rounded-full bg-rojo px-4 py-2 text-sm font-semibold text-white hover:bg-negro">
+                Avisar por WhatsApp
+              </a>
+            ) : (
+              <button type="button" disabled
+                className="mt-3 rounded-full bg-rojo px-4 py-2 text-sm font-semibold text-white opacity-45">
+                Avisar por WhatsApp
+              </button>
+            )}
+          </div>
         )}
 
         <nav

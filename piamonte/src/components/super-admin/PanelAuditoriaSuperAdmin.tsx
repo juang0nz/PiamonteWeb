@@ -37,6 +37,9 @@ const ACCIONES = [
   "asignar",
   "invitacion_iniciada",
   "invitacion_fallida",
+  "acceso_solicitado",
+  "acceso_correo_enviado",
+  "acceso_correo_fallido",
 ];
 
 export function PanelAuditoriaSuperAdmin() {
