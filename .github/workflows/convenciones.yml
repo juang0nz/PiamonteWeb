@@ -1,0 +1,64 @@
+# Valida las convenciones de GitFlow y Jira en cada Pull Request:
+# nombre de la rama origen y título de la PR. Sin acciones externas.
+name: convenciones
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: convenciones-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nombre-de-rama:
+    name: nombre-de-rama
+    runs-on: ubuntu-latest
+    env:
+      RAMA_ORIGEN: ${{ github.head_ref }}
+      # Fuerza comparación sensible a mayúsculas en los rangos [a-z] de la expresión regular.
+      LC_ALL: C
+    steps:
+      - name: Validar el nombre de la rama origen
+        shell: bash
+        run: |
+          set -euo pipefail
+          patron_trabajo='^(feature|fix|hotfix)/PIA-[0-9]+-[a-z0-9-]+$'
+          patron_release='^release/v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ "$RAMA_ORIGEN" =~ $patron_trabajo || "$RAMA_ORIGEN" =~ $patron_release ]]; then
+            echo "Rama válida: $RAMA_ORIGEN"
+            exit 0
+          fi
+          # Back-merge de main a develop después de una release/hotfix.
+          if [[ "$RAMA_ORIGEN" == "main" && "${{ github.base_ref }}" == "develop" ]]; then
+            echo "Back-merge de main a develop permitido."
+            exit 0
+          fi
+          echo "::error::La rama '$RAMA_ORIGEN' no cumple la convención."
+          echo "Formatos aceptados: feature/PIA-123-descripcion, fix/PIA-123-descripcion,"
+          echo "hotfix/PIA-123-descripcion o release/vX.Y.Z. Ver docs/FLUJO-GIT.md."
+          exit 1
+
+  titulo-de-pr:
+    name: titulo-de-pr
+    runs-on: ubuntu-latest
+    env:
+      TITULO_PR: ${{ github.event.pull_request.title }}
+      LC_ALL: C
+    steps:
+      - name: Validar el título de la PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          patron='^PIA-[0-9]+: .+'
+          if [[ "$TITULO_PR" =~ $patron ]]; then
+            echo "Título válido: $TITULO_PR"
+            exit 0
+          fi
+          echo "::error::El título '$TITULO_PR' no cumple la convención 'PIA-123: descripción'."
+          echo "Ver docs/FLUJO-GIT.md."
+          exit 1
