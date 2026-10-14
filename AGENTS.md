@@ -98,7 +98,6 @@ Tecnologías principales:
 - TypeScript
 - Tailwind CSS
 - Supabase
-- Mercado Pago
 - Vercel
 
 La aplicación debe prepararse para incorporar en etapas posteriores:

@@ -43,3 +43,4 @@ next-env.d.ts
 # editor (configuración personal; solo se versionan recomendaciones de extensiones)
 .vscode/
 !.vscode/extensions.json
+!.env.example
