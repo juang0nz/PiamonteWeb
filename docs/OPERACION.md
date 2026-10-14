@@ -118,7 +118,7 @@ existente; solicitar un correo nunca lo reactiva ni modifica sus permisos.
 
 **Configuración necesaria antes de la prueba real:**
 
-1. Revisar y ejecutar manualmente [el SQL de acceso](../database/acceso_empleados.sql)
+1. Revisar y ejecutar manualmente [el SQL de acceso](../supabase/migrations/20261014100012_acceso_empleados.sql)
    después de las migraciones existentes de empleados y auditoría. Solo agrega dos
    RPC; no modifica datos, roles ni tablas internas de Auth. No se ejecuta desde
    la aplicación. Si falta, las nuevas acciones no envían correos sin auditoría.

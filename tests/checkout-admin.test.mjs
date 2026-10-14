@@ -227,7 +227,7 @@ test("La URL de acceso usa configuración explícita, HTTPS y nunca un destino d
 });
 
 test("SQL de acceso audita intención y resultado, restringe al empleado y no escribe Auth ni roles", () => {
-  const sql = fs.readFileSync(path.join(raiz, "database/acceso_empleados.sql"), "utf8");
+  const sql = fs.readFileSync(path.join(raiz, "supabase/migrations/20261014100012_acceso_empleados.sql"), "utf8");
   assert.match(sql, /auth\.uid\(\) is null/);
   assert.match(sql, /rol = 'empleado' and activo/);
   assert.match(sql, /comercio_id <> p_comercio_id or rol <> 'empleado'/);
@@ -1159,7 +1159,7 @@ test("Selectores de productos usan categorías activas y las RPC castean secuenc
   assert.match(panel, /categorias=\{categoriasActivas\}/);
 
   const sql = fs.readFileSync(
-    path.join(raiz, "database/auditoria_etapa_2.sql"),
+    path.join(raiz, "supabase/migrations/20261014100009_auditoria_etapa_2.sql"),
     "utf8",
   );
   assert.match(sql, /p_secuencia::smallint/);
@@ -1193,7 +1193,7 @@ test("Catálogo muestra imágenes y filtra productos con baja lógica", () => {
   assert.match(pedidos, /categoria\.eliminada === true/);
 
   const sql = fs.readFileSync(
-    path.join(raiz, "database/baja_logica_catalogo_super_admin.sql"),
+    path.join(raiz, "supabase/migrations/20261014100010_baja_logica_catalogo_super_admin.sql"),
     "utf8",
   );
   assert.match(sql, /add column if not exists activo boolean/);
@@ -1220,7 +1220,7 @@ test("Eliminar es un nivel distinto de activar o desactivar", () => {
   assert.doesNotMatch(panel, /"Eliminado"/);
 
   const sql = fs.readFileSync(
-    path.join(raiz, "database/eliminacion_catalogo.sql"),
+    path.join(raiz, "supabase/migrations/20261014100011_eliminacion_catalogo.sql"),
     "utf8",
   );
   assert.match(sql, /add column if not exists eliminada boolean/);
@@ -1235,7 +1235,7 @@ test("Eliminar es un nivel distinto de activar o desactivar", () => {
   assert.match(sql, /errcode = '23503'/);
 
   const bajaLogica = fs.readFileSync(
-    path.join(raiz, "database/baja_logica_catalogo_super_admin.sql"),
+    path.join(raiz, "supabase/migrations/20261014100010_baja_logica_catalogo_super_admin.sql"),
     "utf8",
   );
   assert.doesNotMatch(bajaLogica, /La categoría contiene productos activos/);
