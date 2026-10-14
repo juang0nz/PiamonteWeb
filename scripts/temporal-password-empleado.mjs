@@ -1,12 +1,38 @@
 import { readFileSync } from "node:fs";
-import { parseEnv } from "node:util";
+import { parseArgs, parseEnv } from "node:util";
 import { emitKeypressEvents } from "node:readline";
 import { createClient } from "@supabase/supabase-js";
 
-const CORREO_EMPLEADO = "silvaflorencia2018@gmail.com";
 const ARCHIVO_ENTORNO = new URL("../.env.local", import.meta.url);
 
 class ErrorOperacion extends Error {}
+
+// Lee el correo del empleado desde la línea de comandos. Es obligatorio y nunca
+// se versiona: `node scripts/temporal-password-empleado.mjs --correo persona@ejemplo.com`.
+function leerCorreoDesdeArgumentos() {
+  let valores;
+  try {
+    ({ values: valores } = parseArgs({
+      options: { correo: { type: "string" } },
+      strict: true,
+    }));
+  } catch {
+    throw new ErrorOperacion(
+      "Argumentos no reconocidos. Uso: node scripts/temporal-password-empleado.mjs --correo persona@ejemplo.com",
+    );
+  }
+  const correo = valores.correo?.trim().toLowerCase();
+  if (!correo) {
+    throw new ErrorOperacion(
+      "Falta el argumento obligatorio --correo. Uso: node scripts/temporal-password-empleado.mjs --correo persona@ejemplo.com",
+    );
+  }
+  // Validación mínima: un solo "@", sin espacios y con un dominio con punto.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(correo) || correo.length > 254) {
+    throw new ErrorOperacion("El valor de --correo no tiene formato de correo electrónico válido.");
+  }
+  return correo;
+}
 
 function leerPasswordOculta(pregunta) {
   const entrada = process.stdin;
@@ -51,7 +77,7 @@ function leerPasswordOculta(pregunta) {
   });
 }
 
-async function buscarUsuario(supabase) {
+async function buscarUsuario(supabase, correo) {
   let encontrado = null;
   const porPagina = 200;
   for (let pagina = 1; pagina <= 100; pagina += 1) {
@@ -65,7 +91,7 @@ async function buscarUsuario(supabase) {
       );
     }
     for (const usuario of data.users) {
-      if (usuario.email?.trim().toLowerCase() === CORREO_EMPLEADO) {
+      if (usuario.email?.trim().toLowerCase() === correo) {
         if (encontrado) {
           throw new ErrorOperacion("Se encontró más de una coincidencia. Se canceló sin actualizar.");
         }
@@ -83,6 +109,7 @@ async function buscarUsuario(supabase) {
 }
 
 async function main() {
+  const correo = leerCorreoDesdeArgumentos();
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new ErrorOperacion("Usá una terminal interactiva, sin redirecciones ni captura de sesión.");
   }
@@ -110,8 +137,8 @@ async function main() {
   const supabase = createClient(url, clave, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
-  const usuario = await buscarUsuario(supabase);
-  console.log(`Cuenta encontrada: ${CORREO_EMPLEADO}`);
+  const usuario = await buscarUsuario(supabase, correo);
+  console.log(`Cuenta encontrada: ${correo}`);
   console.log(`ID: ${usuario.id}`);
   console.log("Solo se actualizará la contraseña. No se confirmará el correo ni se modificarán permisos.");
   if (!usuario.email_confirmed_at) {
@@ -134,7 +161,7 @@ async function main() {
   confirmacion = "";
 
   const { data: actual, error: errorLectura } = await supabase.auth.admin.getUserById(usuario.id);
-  if (errorLectura || actual.user?.email?.trim().toLowerCase() !== CORREO_EMPLEADO) {
+  if (errorLectura || actual.user?.email?.trim().toLowerCase() !== correo) {
     password = "";
     throw new ErrorOperacion("No se pudo reconfirmar la identidad de la cuenta. No se solicitó ningún cambio.");
   }
