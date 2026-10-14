@@ -1,10 +1,10 @@
 import { limitesGrupo } from "@/lib/catalogo/configurador";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
 import { validarDatosCheckout } from "@/lib/checkout/tipos";
-import { validarMetodoPagoParaPedido } from "@/lib/pagos/mercadoPago";
 import { createPrivateClient } from "@/lib/supabase/private";
 import { normalizarCelularUruguayo } from "@/lib/checkout/celular";
 import type { PostgrestError } from "@supabase/supabase-js";
+import { METODO_PAGO_PEDIDO } from "./tipos";
 import type {
   ItemPedidoCalculado,
   ItemPedidoInput,
@@ -140,10 +140,6 @@ function validarInputBasico(input: PedidoCheckoutInput) {
   }
   if (input.items.length > 40) {
     fallar("El pedido supera la cantidad máxima de ítems permitida.");
-  }
-  const validacionMetodoPago = validarMetodoPagoParaPedido(input.metodoPago);
-  if (!validacionMetodoPago.valido) {
-    fallar(validacionMetodoPago.error ?? "El método de pago no es válido.");
   }
   const errores = validarDatosCheckout(input.checkout);
   if (Object.keys(errores).length > 0) {
@@ -517,7 +513,7 @@ export async function validarYRegistrarPedido(
           : null,
       p_direccion_apartamento: normalizarTexto(input.checkout.apartamento, 20) || null,
       p_direccion_referencias: referenciasFinales,
-      p_metodo_pago: input.metodoPago,
+      p_metodo_pago: METODO_PAGO_PEDIDO,
       p_subtotal: subtotal,
       p_items: pedidoCalculado.items.map((item) => ({
         producto_id: item.productoId,
@@ -600,16 +596,6 @@ export async function validarYRegistrarPedido(
     );
   }
   console.info("[pedidos] pedido_id devuelto por rpc", { pedidoId: fila.pedido_id });
-  const pagoId =
-    typeof fila.pago_id === "string" && fila.pago_id ? fila.pago_id : null;
-  if (input.metodoPago === "mercado_pago" && !pagoId) {
-    throw new PedidoError(
-      "El servidor no creó el intento de pago asociado al pedido.",
-      500,
-      "BASE_DATOS",
-    );
-  }
-
   // Número correlativo visible en el panel del local; es el que se le muestra al cliente.
   // Si la consulta falla, el pedido ya quedó registrado, así que no se interrumpe el flujo.
   const { data: pedidoCreado, error: errorNumero } = await supabase
@@ -626,7 +612,6 @@ export async function validarYRegistrarPedido(
 
   return {
     pedidoId: fila.pedido_id,
-    pagoId,
     numeroPedido:
       typeof pedidoCreado?.numero === "number" ? pedidoCreado.numero : null,
     subtotal,

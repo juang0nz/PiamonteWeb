@@ -1,11 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import {
-  DATOS_INICIALES,
-  esMetodoPagoHabilitado,
-  type DatosCheckout,
-} from "./tipos";
+import { DATOS_INICIALES, type DatosCheckout } from "./tipos";
 
 // Datos del cliente en el checkout, guardados en sessionStorage para que no se pierdan
 // al volver al carrito o recargar la página dentro de la misma pestaña.
@@ -25,15 +21,10 @@ function asegurarCarga() {
     if (guardado && typeof guardado === "object") {
       const combinado = { ...DATOS_INICIALES, ...(guardado as Partial<DatosCheckout>) };
       const tipo = combinado.tipoEntrega;
-      const metodoPagoValido =
-        combinado.metodoPago === "efectivo" ||
-        (combinado.metodoPago === "mercado_pago" &&
-          esMetodoPagoHabilitado("mercado_pago"));
 
       datos = {
         ...combinado,
         tipoEntrega: tipo === "delivery" || tipo === "retiro" ? tipo : null,
-        metodoPago: metodoPagoValido ? combinado.metodoPago : null,
         programarParaApertura: Boolean(combinado.programarParaApertura),
       };
     }

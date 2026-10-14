@@ -11,7 +11,8 @@ Google OAuth, SMS/OTP, perfiles, direcciones guardadas ni recuperación de contr
 para clientes. Las antiguas rutas `/mi-cuenta` y `/auth/callback` se retiraron.
 No se modifican proveedores externos ni se eliminan usuarios de Supabase Auth.
 
-El checkout solicita nombre, celular, delivery o retiro y método de pago. Calle,
+El checkout solicita nombre, celular y delivery o retiro; el pago se realiza en el
+local, al retirar o al recibir (efectivo o tarjeta), y no es una elección del cliente. Calle,
 número, apartamento y referencias corresponden a la entrega. No exige sesión,
 correo ni contraseña. El celular acepta formatos nacionales e internacionales de
 Uruguay y se guarda en E.164, por ejemplo `+59899806731`. Es un dato de contacto,

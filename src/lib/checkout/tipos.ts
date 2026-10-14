@@ -1,13 +1,11 @@
 // Tipos y validación de los datos del cliente en el checkout (genéricos para cualquier comercio).
-import { MERCADO_PAGO_DISPONIBLE_EN_CHECKOUT } from "@/lib/pagos/configuracion";
+// El pago no es una elección del cliente: se realiza en el local al retirar o al recibir.
 import { normalizarCelularUruguayo } from "./celular";
 
 export type TipoEntrega = "delivery" | "retiro";
-export type MetodoPagoCheckout = "efectivo" | "mercado_pago";
 
 export type DatosCheckout = {
   tipoEntrega: TipoEntrega | null;
-  metodoPago: MetodoPagoCheckout | null;
   programarParaApertura: boolean;
   nombre: string;
   telefono: string;
@@ -23,7 +21,6 @@ export type ErroresCheckout = Partial<Record<CampoCheckout, string>>;
 
 export const DATOS_INICIALES: DatosCheckout = {
   tipoEntrega: null,
-  metodoPago: null,
   programarParaApertura: false,
   nombre: "",
   telefono: "",
@@ -34,27 +31,11 @@ export const DATOS_INICIALES: DatosCheckout = {
 };
 
 // Valida los campos obligatorios. Los de dirección solo se exigen para delivery.
-export function esMetodoPagoHabilitado(metodoPago: MetodoPagoCheckout | null): boolean {
-  if (metodoPago === "efectivo") {
-    return true;
-  }
-
-  return (
-    metodoPago === "mercado_pago" &&
-    MERCADO_PAGO_DISPONIBLE_EN_CHECKOUT
-  );
-}
-
 export function validarDatosCheckout(datos: DatosCheckout): ErroresCheckout {
   const errores: ErroresCheckout = {};
 
   if (!datos.tipoEntrega) {
     errores.tipoEntrega = "Elegí cómo querés recibir tu pedido.";
-  }
-  if (!datos.metodoPago) {
-    errores.metodoPago = "Elegí cómo querés pagar tu pedido.";
-  } else if (!esMetodoPagoHabilitado(datos.metodoPago)) {
-    errores.metodoPago = "Mercado Pago todavía no está habilitado. Usá efectivo por ahora.";
   }
 
   if (datos.nombre.trim().length < 2) {

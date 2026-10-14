@@ -2,7 +2,6 @@ import { BannerPromociones } from "@/components/catalogo/BannerPromociones";
 import { ActualizadorCatalogo } from "@/components/catalogo/ActualizadorCatalogo";
 import { BarraLateral } from "@/components/catalogo/BarraLateral";
 import { EncabezadoMovil } from "@/components/catalogo/EncabezadoMovil";
-import { FooterMetodosPago } from "@/components/catalogo/FooterMetodosPago";
 import { GrillaCategorias } from "@/components/catalogo/GrillaCategorias";
 import { MensajeEstado } from "@/components/catalogo/MensajeEstado";
 import { ReservaCarrito } from "@/components/catalogo/ReservaCarrito";
@@ -174,7 +173,6 @@ export default async function PaginaCatalogo({
             <GrillaCategorias categorias={categorias} />
           </>
         )}
-        <FooterMetodosPago />
       </main>
 
       <ReservaCarrito />

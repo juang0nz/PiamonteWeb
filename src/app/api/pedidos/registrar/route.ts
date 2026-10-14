@@ -53,14 +53,13 @@ export async function POST(request: Request) {
     body = JSON.parse(raw);
     const payload = body as {
       comercioSlug?: unknown;
-      checkout?: { tipoEntrega?: unknown; metodoPago?: unknown } | null;
+      checkout?: { tipoEntrega?: unknown } | null;
       programarParaApertura?: unknown;
       items?: unknown[];
     };
     console.info("[api/pedidos/registrar] body parseado", {
       comercioSlug: payload?.comercioSlug ?? null,
       tipoEntrega: payload?.checkout?.tipoEntrega ?? null,
-      metodoPago: payload?.checkout?.metodoPago ?? null,
       programarParaApertura: payload?.programarParaApertura ?? null,
       items: Array.isArray(payload?.items) ? payload.items.length : null,
     });

@@ -4,11 +4,12 @@ import type {
   DatosCheckout,
   ErroresCheckout,
 } from "@/lib/checkout/tipos";
+import { MENSAJE_PAGO } from "@/lib/comercio";
 import { CampoTexto } from "./CampoTexto";
 import { SelectorEntrega } from "./SelectorEntrega";
-import { SelectorMetodoPago } from "./SelectorMetodoPago";
 
 // Formulario de datos del cliente: tipo de entrega, contacto y dirección (solo delivery).
+// El pago no se elige: se informa que se realiza en el local.
 export function FormularioCheckout({
   id,
   datos,
@@ -41,11 +42,9 @@ export function FormularioCheckout({
       </Seccion>
 
       <Seccion titulo="¿Cómo lo pagás?">
-        <SelectorMetodoPago
-          valor={datos.metodoPago}
-          onCambio={(metodoPago) => onCambio({ metodoPago })}
-          error={errores.metodoPago}
-        />
+        <p className="rounded-2xl border-2 border-negro/10 bg-white p-4 text-sm text-negro/75">
+          {MENSAJE_PAGO}
+        </p>
       </Seccion>
 
       <Seccion titulo="Tus datos">

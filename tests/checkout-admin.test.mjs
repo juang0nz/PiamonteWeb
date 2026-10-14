@@ -29,9 +29,6 @@ const accesoEmpleados = cargar("src/lib/admin/accesoEmpleados.ts", { "server-onl
 const celular = cargar("src/lib/checkout/celular.ts", {});
 const checkout = cargar("src/lib/checkout/tipos.ts", {
   "./celular": celular,
-  "@/lib/pagos/configuracion": {
-    MERCADO_PAGO_DISPONIBLE_EN_CHECKOUT: false,
-  },
 });
 const clientes = cargar("src/lib/admin/clientes.ts", { "@/lib/checkout/celular": celular });
 const NextResponse = {
@@ -355,7 +352,7 @@ test("Normaliza celulares nacionales e internacionales sin admitir fijos o extra
   }
 });
 test("Checkout de invitado no exige sesión, correo ni dirección para retiro", () => {
-  const datos = { ...checkout.DATOS_INICIALES, tipoEntrega: "retiro", metodoPago: "efectivo", nombre: "Ana", telefono: "099806731" };
+  const datos = { ...checkout.DATOS_INICIALES, tipoEntrega: "retiro", nombre: "Ana", telefono: "099806731" };
   assert.equal(Object.keys(checkout.validarDatosCheckout(datos)).length, 0);
   assert.ok(checkout.validarDatosCheckout({ ...datos, nombre: " " }).nombre);
   assert.ok(checkout.validarDatosCheckout({ ...datos, telefono: "24001234" }).telefono);
@@ -1524,13 +1521,11 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto: true }) },
     "@/lib/supabase/private": { createPrivateClient: () => supabase },
     "@/lib/checkout/tipos": checkout, "@/lib/checkout/celular": celular,
-    "@/lib/pagos/mercadoPago": {
-      validarMetodoPagoParaPedido: metodo => ({ valido: metodo === "efectivo" }),
-    },
+    "./tipos": { METODO_PAGO_PEDIDO: "efectivo" },
   });
   const input = {
-    comercioSlug: "piamonte", metodoPago: "efectivo", cliente_user_id: "ignorado",
-    checkout: { ...checkout.DATOS_INICIALES, tipoEntrega: "retiro", metodoPago: "efectivo", nombre: " Ana ", telefono: "099 806 731" },
+    comercioSlug: "piamonte", cliente_user_id: "ignorado",
+    checkout: { ...checkout.DATOS_INICIALES, tipoEntrega: "retiro", nombre: " Ana ", telefono: "099 806 731" },
     items: [{ productoId: "producto", varianteId: null, cantidad: 2, aclaraciones: "", opciones: [] }],
   };
   const resultado = await registrar.validarYRegistrarPedido(input);
@@ -1538,10 +1533,10 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   assert.equal(parametros.p_cliente_telefono, "+59899806731");
   assert.equal(parametros.p_cliente_user_id, undefined);
   assert.equal(parametros.p_subtotal, 200);
+  assert.equal(parametros.p_metodo_pago, "efectivo");
   assert.equal(parametros.p_direccion_calle, null);
   assert.equal(resultado.numeroPedido, 42);
   assert.equal(resultado.pedidoId, "pedido-prueba");
-  assert.equal(resultado.pagoId, null);
   await assert.rejects(registrar.validarYRegistrarPedido({ ...input, checkout: { ...input.checkout, telefono: "24001234" } }), /datos del checkout/);
 });
 test("Endpoint público registra sin consultar sesión", async () => {

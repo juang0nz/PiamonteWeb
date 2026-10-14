@@ -49,7 +49,6 @@ export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
       items: items.length,
       cantidadTotal: items.reduce((acum, item) => acum + item.cantidad, 0),
       tipoEntrega: datos.tipoEntrega,
-      metodoPago: datos.metodoPago,
     });
     setIntentoEnviar(true);
     setErrorServidor(null);
@@ -87,7 +86,6 @@ export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
         body: JSON.stringify({
           comercioSlug: SLUG_COMERCIO,
           checkout: datos,
-          metodoPago: datos.metodoPago,
           programarParaApertura: datos.programarParaApertura,
           items: items.map((item) => ({
             productoId: item.productoId,
