@@ -545,6 +545,7 @@ test("Middleware permite APIs admin al Super Admin sin vínculo comercial", asyn
   const proxy = cargar("middleware.ts", {
     "next/server": { NextResponse },
     "@supabase/ssr": { createServerClient: () => cliente },
+    "@/lib/comercio": { SLUG_COMERCIO: "piamonte" },
   });
   const request = {
     method: "GET",
@@ -582,6 +583,7 @@ test("Middleware mantiene admin_comercios obligatorio para Admin común", async 
   const proxy = cargar("middleware.ts", {
     "next/server": { NextResponse },
     "@supabase/ssr": { createServerClient: () => cliente },
+    "@/lib/comercio": { SLUG_COMERCIO: "piamonte" },
   });
   const request = {
     method: "GET",
@@ -620,6 +622,7 @@ test("Middleware limita al Empleado a las APIs operativas de pedidos", async () 
   const proxy = cargar("middleware.ts", {
     "next/server": { NextResponse },
     "@supabase/ssr": { createServerClient: crearCliente },
+    "@/lib/comercio": { SLUG_COMERCIO: "piamonte" },
   });
   const crearRequest = pathname => ({
     method: "GET",
@@ -1558,17 +1561,17 @@ test("Endpoint público registra sin consultar sesión", async () => {
   assert.equal(resultado.body.numeroPedido, 42);
   assert.equal(recibido.comercioSlug, "piamonte");
 });
-test("Cuentas de clientes quedan separadas del checkout invitado y del acceso administrativo", () => {
+test("Las cuentas de clientes fueron retiradas y el checkout invitado no depende de ellas", () => {
+  // Rutas y módulos de cuentas de clientes: no deben volver a existir.
   for (const ruta of [
-    "src/app/mi-cuenta/page.tsx",
-    "src/app/auth/registro/page.tsx",
-    "src/app/auth/login/page.tsx",
-    "src/app/auth/callback/route.ts",
-    "src/lib/clientes/cuenta.ts",
-    "src/lib/clientes/perfil.ts",
+    "src/app/mi-cuenta",
+    "src/app/auth",
+    "src/lib/clientes",
+    "src/components/clientes",
   ]) {
-    assert.equal(fs.existsSync(path.join(raiz, ruta)), true, ruta);
+    assert.equal(fs.existsSync(path.join(raiz, ruta)), false, ruta);
   }
+  // El checkout y el registro de pedidos no consultan perfiles ni sesión de cliente.
   for (const archivo of [
     "src/app/api/pedidos/registrar/route.ts",
     "src/lib/pedidos/registrar.ts",
@@ -1582,35 +1585,27 @@ test("Cuentas de clientes quedan separadas del checkout invitado y del acceso ad
       archivo,
     );
   }
-  const acciones = fs.readFileSync(
-    path.join(raiz, "src/lib/clientes/cuenta.ts"),
+  // La navegación pública no enlaza a rutas de cuentas.
+  const navegacion = fs.readFileSync(
+    path.join(raiz, "src/components/catalogo/NavegacionPiamonte.tsx"),
     "utf8",
   );
-  assert.ok(!/createPrivateClient|service_role/.test(acciones));
-  assert.match(acciones, /obtenerComercioActual/);
-  assert.match(acciones, /signUp/);
-  assert.match(acciones, /signInWithPassword/);
-  assert.match(acciones, /signOut/);
-
-  const cuenta = fs.readFileSync(
-    path.join(raiz, "src/app/mi-cuenta/page.tsx"),
-    "utf8",
-  );
-  assert.match(cuenta, /clientes_perfiles/);
-  assert.match(cuenta, /clientes_direcciones/);
+  assert.ok(!/\/mi-cuenta|\/auth\//.test(navegacion));
 
   for (const cliente of ["client", "server", "private"]) {
     assert.equal(fs.existsSync(path.join(raiz, `src/lib/supabase/${cliente}.ts`)), true);
   }
+  // El middleware cubre solo las rutas administrativas y toma el slug de la configuración del comercio.
   const middleware = fs.readFileSync(path.join(raiz, "middleware.ts"), "utf8");
   for (const matcher of [
     "/admin/:path*",
     "/super-admin/:path*",
     "/api/admin/:path*",
     "/api/super-admin/:path*",
-    "/auth/:path*",
-    "/mi-cuenta/:path*",
   ]) {
     assert.ok(middleware.includes(`"${matcher}"`));
   }
+  assert.ok(!/\/auth\/:path\*|\/mi-cuenta\/:path\*/.test(middleware));
+  assert.match(middleware, /import \{ SLUG_COMERCIO \} from "@\/lib\/comercio"/);
+  assert.ok(!/"piamonte"/.test(middleware));
 });

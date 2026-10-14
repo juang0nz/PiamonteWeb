@@ -64,16 +64,6 @@ export function NavegacionPiamonte({
               Promociones
             </EnlaceNavegacion>
           </li>
-          <li>
-            <EnlaceNavegacion
-              href="/mi-cuenta"
-              icono="cuenta"
-              activo={false}
-              onClick={onNavegar}
-            >
-              Mi cuenta
-            </EnlaceNavegacion>
-          </li>
         </ul>
 
         <div className="my-4 border-t border-crema/10" />
@@ -252,8 +242,6 @@ function Icono({ tipo }: { tipo: string }) {
       return <svg {...atributos}><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5" /></svg>;
     case "promociones":
       return <svg {...atributos}><path d="m20 13-7 7L3 10V3h7z" /><circle cx="7.5" cy="7.5" r="1" /></svg>;
-    case "cuenta":
-      return <svg {...atributos}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
     case "ubicacion":
       return <svg {...atributos}><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></svg>;
     case "reloj":

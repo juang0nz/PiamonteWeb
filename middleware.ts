@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { SLUG_COMERCIO } from "@/lib/comercio";
 
-const COMERCIO_ADMIN_SLUG = "piamonte";
 
 function esRutaOperativaPedidos(pathname: string): boolean {
   return (
@@ -51,7 +51,7 @@ async function actualizarSesion(
   const { data: comercio, error: comercioError } = await supabase
     .from("comercios")
     .select("id")
-    .eq("slug", COMERCIO_ADMIN_SLUG)
+    .eq("slug", SLUG_COMERCIO)
     .eq("activo", true)
     .maybeSingle();
   if (comercioError || !comercio?.id) {
@@ -120,7 +120,5 @@ export const config = {
     "/super-admin/:path*",
     "/api/admin/:path*",
     "/api/super-admin/:path*",
-    "/auth/:path*",
-    "/mi-cuenta/:path*",
   ],
 };
