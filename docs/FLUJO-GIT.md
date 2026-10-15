@@ -9,7 +9,7 @@ Jira vincula automáticamente los commits y las ramas que contienen la clave.
 | Rama | Significado | Recibe |
 | --- | --- | --- |
 | `main` | Lo que está en producción (Vercel Production). | Solo merges desde `release/*` y `hotfix/*`. Cada merge se etiqueta `vX.Y.Z` (SemVer). |
-| `develop` | Integración (Vercel Preview, alias estable `<<develop-piamonte.vercel.app>>`). | Merges de `feature/*` y `fix/*` vía Pull Request. |
+| `develop` | Integración (Vercel Preview; el alias estable se define al crear el proyecto en Vercel, ver `docs/OPERACION.md`). | Merges de `feature/*` y `fix/*` vía Pull Request. |
 
 Nunca se hace commit ni push directo a `main` ni a `develop`.
 
@@ -26,6 +26,8 @@ El nombre lleva el ticket de forma obligatoria:
 
 La descripción corta va en minúsculas, sin tildes, con guiones (`[a-z0-9-]`).
 Si todavía no existe el ticket, usar `PIA-0` y crear el ticket antes de mergear.
+Mientras no exista el proyecto en Jira, la numeración `PIA-n` se mantiene en
+[`docs/BACKLOG.md`](BACKLOG.md); al crear Jira, importar esos tickets conservando los números.
 
 Expresiones regulares exactas que valida la CI (`.github/workflows/convenciones.yml`):
 

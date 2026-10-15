@@ -1,3 +1,2 @@
-# Revisores por defecto de toda PR. Reemplazar los marcadores por los usuarios de GitHub
-# del dueño del repositorio y del colaborador (probablemente @juang0nz y @peterfernandez-cyber).
-* @<<usuario-github-dueño>> @<<usuario-github-colaborador>>
+# Revisores por defecto de toda PR: dueño del repositorio y colaborador.
+* @juang0nz @pfernandezgr
