@@ -169,9 +169,9 @@ entorno nuevo desde cero.
 
 - **Ninguna migración ya mergeada en `develop` se edita ni se elimina.** Un cambio se
   expresa con una migración nueva. El job `ci / migraciones-inmutables`
-  (`scripts/verificar-migraciones.sh`) lo comprueba; está **desactivado temporalmente**
-  desde PIA-1 porque esa tarea reescribió la cadena. Reactivarlo (quitar el `if: false`
-  en `.github/workflows/ci.yml`) cuando la base esté estable.
+  (`scripts/verificar-migraciones.sh`) lo comprueba en cada PR; la única excepción es la
+  rama `feature/PIA-1-*`, excluida en `.github/workflows/ci.yml` porque esa tarea
+  reescribió la cadena. Desde la siguiente PR el check vuelve a bloquear.
 - Nombre: `YYYYMMDDHHMMSS_descripcion_en_snake_case.sql`, generado con
   `npx supabase migration new descripcion`.
 - Cada migración empieza con un comentario que explica qué cambia, qué requiere y si es

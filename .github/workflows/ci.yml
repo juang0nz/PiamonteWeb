@@ -68,11 +68,11 @@ jobs:
 
   migraciones-inmutables:
     name: migraciones-inmutables
-    # Desactivado temporalmente desde PIA-1 (2026-10-17): esa tarea movió las migraciones
-    # previas a supabase/historial/ y creó la foto base, lo que este check marca como
-    # borrado. Reactivar (volver a `if: github.event_name == 'pull_request'`) cuando la
-    # cadena de migraciones esté estable. Ver docs/BASE-DE-DATOS.md y docs/PIPELINE.md.
-    if: false
+    # Excluido únicamente para la rama de PIA-1 (2026-10-17): esa tarea movió las
+    # migraciones previas a supabase/historial/ y creó la foto base, lo que este check
+    # marca como borrado. Para cualquier otra PR el check sigue activo.
+    # Ver docs/BASE-DE-DATOS.md y docs/PIPELINE.md.
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'feature/PIA-1-')
     runs-on: ubuntu-latest
     steps:
       - name: Obtener el código con historial completo
