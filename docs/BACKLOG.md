@@ -1,12 +1,16 @@
-# Backlog (numeración provisoria `PIA-n`)
+# Backlog
 
-Mientras no exista el proyecto en Jira, este archivo es la fuente de los números de
-ticket que se usan en ramas, commits y PRs (`feature/PIA-3-costo-delivery`,
-`PIA-3: ...`). Al crear el proyecto en Jira con clave `PIA`, importar estos tickets
-conservando la numeración. Origen funcional: documento *Tareas_PIAMONTE* (2026-10-14);
-ninguna de esas tareas tiene implementación en el código (verificado: solo existen
-precursores fijos como el texto "radio de 3 km", `tiemposEntrega` estático, el enlace
-manual `wa.me` y la categoría `promos`).
+**Fuente de verdad: Jira, proyecto `PIA`** — https://correo-team-mnj7mx3n.atlassian.net/jira/software/projects/PIA
+
+Los tickets `PIA-1` a `PIA-19` fueron creados el 2026-10-17 con la numeración de esta tabla,
+que se conserva aquí solo como índice de lectura rápida. El estado vigente, las decisiones y
+los comentarios viven en Jira; este archivo no se actualiza por cada cambio de estado.
+
+El saneamiento inicial del repositorio (GitFlow, migraciones, pipeline DevSecOps) se hizo
+antes de existir Jira bajo la etiqueta `PIA-0` (once ramas `feature/PIA-0-*`, ya integradas
+en `develop`). No tiene ticket: Jira numera desde 1.
+
+Origen funcional: documento *Tareas_PIAMONTE* (2026-10-14).
 
 Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 
@@ -14,13 +18,13 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 
 | Ticket | Título | Estado |
 | --- | --- | --- |
-| PIA-0 | Saneamiento del repositorio, GitFlow, migraciones y pipeline DevSecOps (10 ramas `feature/PIA-0-*`, ver `docs/PIPELINE.md`) | hecho, pendiente de merge a `develop` |
+| PIA-0 | Saneamiento del repositorio, GitFlow, migraciones y pipeline DevSecOps (ver `docs/PIPELINE.md`) | hecho, en `develop` |
 
 ## Prerequisito técnico
 
 | Ticket | Título | Dependencias | Estado |
 | --- | --- | --- | --- |
-| PIA-1 | Reconciliar el esquema de Supabase y preparar entorno de desarrollo: `supabase link`, `db pull` del esquema base (hoy no versionado), `migration repair` de lo ya aplicado, resolver `supabase/pendientes/`, y crear un proyecto Supabase de desarrollo separado de producción con datos de prueba | Acceso al proyecto Supabase del comercio | pendiente |
+| PIA-1 | Reconciliar el esquema de Supabase y preparar entorno de desarrollo: `supabase link`, `db pull` del esquema base (hoy no versionado), `migration repair` de lo ya aplicado, resolver `supabase/pendientes/`, y crear un proyecto Supabase de desarrollo separado de producción con datos de prueba | Acceso al proyecto Supabase del comercio | hecho (2026-10-17; `piamonte-dev` provisorio en organización personal) |
 
 ## Funcional (orden de implementación recomendado por el cliente)
 
@@ -35,6 +39,7 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 | PIA-8 | Notificación automática por WhatsApp (Meta Cloud API) al aceptar un pedido, con tiempo estimado, estado por notificación, reintentos e idempotencia; token solo en servidor (PIAM-03) | alta | PIA-2; cuenta Meta Business, compatibilidad del número (Coexistence), plantilla aprobada, consentimiento del cliente | bloqueado (Meta) |
 | PIA-9 | Promociones, descuentos y cupones administrables: porcentaje o monto fijo, alcance tienda/categoría/producto, vigencia, límite de usos, mínimos, prioridades y auditoría (PIAM-09) | media | PIA-4 (modelar el descuento web como caso particular de este modelo) | pendiente |
 | PIA-10 | Relevamiento de DELYSOFT: funciones que conserva, datos a sincronizar, mecanismo de integración, documento de propuesta antes de desarrollar conectores (PIAM-06) | relevamiento | Conversación con el proveedor | bloqueado (proveedor) |
+| PIA-19 | Cuentas de clientes: registro y acceso con email, "Mi cuenta" con pedidos en curso (tiempo real) e historial, direcciones guardadas; la compra sin cuenta sigue permitida. Recuperar como base el código retirado en `34f588e` y el SQL de `supabase/pendientes/` | alta | PIA-1, PIA-2; antes de PIA-4 | pendiente |
 
 ## Infraestructura y seguridad (derivados de PIA-0)
 

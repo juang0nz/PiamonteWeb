@@ -10,7 +10,8 @@ digest con `docker run` en el runner; las acciones de GitHub se fijan por SHA de
 ```text
 Pull Request → develop / main
 ├── convenciones   nombre-de-rama, titulo-de-pr               (bloquea)
-├── ci             verificar, migraciones-inmutables           (bloquea)
+├── ci             verificar                                   (bloquea)
+│                  migraciones-inmutables                      (bloquea; excluido solo en la rama de PIA-1)
 └── seguridad      secretos, sast, dependencias, cabeceras-http (bloquea)
 
 push a develop
@@ -35,7 +36,7 @@ manual (workflow_dispatch)
 | `convenciones / nombre-de-rama` | bash | la rama origen no cumple `feature|fix|hotfix/PIA-n-slug` o `release/vX.Y.Z` |
 | `convenciones / titulo-de-pr` | bash | el título no cumple `PIA-n: …` |
 | `ci / verificar` | npm, ShellCheck, `verificar-pines.sh` | falla lint, tipos, tests, build, hay un pin móvil o un script con problemas |
-| `ci / migraciones-inmutables` | `verificar-migraciones.sh` | la PR modifica o elimina una migración ya existente en la rama base |
+| `ci / migraciones-inmutables` | `verificar-migraciones.sh` | la PR modifica o elimina una migración ya existente en la rama base. Excluido solo para la rama `feature/PIA-1-*`; ver abajo |
 | `seguridad / secretos` | Gitleaks | cualquier hallazgo en los commits de la PR |
 | `seguridad / sast` | Semgrep | al menos un hallazgo de severidad `ERROR` (los `WARNING`/`INFO` se listan y no bloquean) |
 | `seguridad / dependencias` | npm audit, Trivy | vulnerabilidad alta o crítica **con corrección disponible** en dependencias de producción; secretos o configuraciones inseguras |
@@ -61,6 +62,12 @@ consola y no bloquea. Pasarla a bloqueante es un ticket aparte.
   comentario del motivo en la línea anterior.
 
 ### `ci / migraciones-inmutables`
+
+**Excluido únicamente para la rama de PIA-1** (`if: github.event_name == 'pull_request' &&
+!startsWith(github.head_ref, 'feature/PIA-1-')`): esa tarea (2026-10-17) movió las doce
+migraciones previas a `supabase/historial/` y creó la foto base del esquema, un cambio
+que este check marca como borrado. Desde la siguiente PR el check vuelve a estar activo y
+bloquea.
 
 Lista los archivos de `supabase/migrations/` con estado `M` (modificado), `D`
 (eliminado) o `R` (renombrado). Revertir el cambio y escribir una migración nueva
