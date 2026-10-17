@@ -25,6 +25,12 @@ cp .env.example .env.local   # completar con los valores del proyecto de Supabas
 npm run dev                  # http://localhost:3000
 ```
 
+Los valores de `.env.local` son los del proyecto de Supabase de **desarrollo**
+(`piamonte-dev`); el esquema y los datos de catálogo de ese proyecto salen de
+`supabase/migrations/` y `supabase/seed.sql`, ver [docs/BASE-DE-DATOS.md](docs/BASE-DE-DATOS.md).
+Para entrar al panel (`/admin`) hace falta un usuario en *Authentication → Users* y una
+fila en `admin_comercios` **del proyecto que se esté usando**; el seed no incluye ninguno.
+
 Scripts disponibles:
 
 | Script | Qué hace |
