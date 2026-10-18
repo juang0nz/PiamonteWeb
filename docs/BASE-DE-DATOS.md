@@ -27,11 +27,13 @@ manual y auditada que hace una persona con acceso al proyecto.
 | --- | --- |
 | `20261017134905_remote_schema.sql` | **Foto base**: esquema real de producción capturado con `supabase db pull` (esquema `public` completo: 18 tablas, 38 funciones, 26 políticas RLS, triggers, índices, grants, y la política de lectura sobre `storage.objects`). |
 | `20261017134906_storage_bucket_imagenes.sql` | Fila del bucket `imagenes-productos` en `storage.buckets` (dato, no esquema; `db pull` no la captura). Escrita a mano a partir de la configuración observada en producción. |
+| `20261017210509_limpiar_rpc_pedidos.sql` | **PIA-20.** Retira los objetos de Mercado Pago (`pagos`, `pagos_notificaciones`, `confirmar_pago_mercado_pago`, `reservar_preferencia_mercado_pago`); cambia el contrato de `metodo_pago` a `('efectivo', 'tarjeta_pos')` en la RPC `registrar_pedido_desde_checkout` (misma firma; `pago_id` del resultado queda siempre `null`) y en el check de `pedidos` (creado `NOT VALID` por si producción tiene filas históricas con `mercado_pago`); crea la función y el trigger `validar_disponibilidad_item_pedido` sobre `pedido_items` que el script histórico 04 nunca llegó a aplicar. Conserva `pedidos.estado_pago` y su check para PIA-3. La UI del POS (`tarjeta_pos`) es PIA-3; la aplicación sigue enviando `"efectivo"`. **Pendiente de aplicar en producción** en el próximo release: ver "Procedimiento para una migración nueva". |
 
-Ambas están aplicadas en `piamonte-dev`. En producción la foto base figura como aplicada
+Las tres están aplicadas en `piamonte-dev`. En producción la foto base figura como aplicada
 en `supabase_migrations.schema_migrations` (ver "Nota sobre el historial de producción");
 la del bucket no hace falta aplicarla porque el bucket ya existe con esa configuración, y
-`db push` contra producción la registrará sin efecto gracias al `on conflict`.
+`db push` contra producción la registrará sin efecto gracias al `on conflict`. La de PIA-20
+sí tiene efecto en producción y se aplica con el release que la incluya.
 
 Los doce scripts que antes estaban en `supabase/migrations/` se movieron a
 [`supabase/historial/`](../supabase/historial/README.md) como documentación. Los tres de
@@ -58,9 +60,9 @@ que crea o modifica están en producción; "parcial", algunos; "no aplicado", ni
 | Script | Resultado | Evidencia en la foto |
 | --- | --- | --- |
 | `historial/01_super_admin` | aplicado | `super_admins`, `es_super_admin_activo`, políticas `super_admin_self_read` y `super_admin_no_user_writes`. |
-| `historial/02_registrar_pedido_desde_checkout` | aplicado | Función con la misma firma (11 parámetros; `p_metodo_pago` admite `efectivo` y `mercado_pago`). |
+| `historial/02_registrar_pedido_desde_checkout` | aplicado | Función con la misma firma (11 parámetros). En la foto `p_metodo_pago` admitía `efectivo` y `mercado_pago`; PIA-20 la redefinió con `efectivo` y `tarjeta_pos`. |
 | `historial/03_gestion_catalogo_admin` | parcial | `variantes_producto` tiene `insert/update` para `service_role`; `productos` solo `select/update`; `categorias` solo `select`. No afecta a la aplicación: las altas y ediciones pasan por las RPC auditadas (`security definer`). |
-| `historial/04_disponibilidad_productos` | no aplicado | No existen `validar_disponibilidad_item_pedido` (función ni trigger) ni las políticas "Catalogo publico lee…". La lectura pública la dan las políticas del esquema base ("Lectura publica de productos/variantes disponibles"). |
+| `historial/04_disponibilidad_productos` | no aplicado (en la foto) | No existían `validar_disponibilidad_item_pedido` (función ni trigger) ni las políticas "Catalogo publico lee…". La función y el trigger los aplicó después PIA-20 (`20261017210509_limpiar_rpc_pedidos.sql`). Las políticas no se recrean: la lectura pública la dan las del esquema base ("Lectura publica de productos/variantes disponibles"). |
 | `historial/05_storage_imagenes_productos` | parcial | El bucket `imagenes-productos` existe con la configuración del script (público, 5 MB, jpeg/png/webp), pero la política conserva el nombre viejo "Lectura pública de imágenes de productos" que el script debía renombrar. |
 | `historial/06_notificaciones_pedidos_realtime` | aplicado | `pedidos.revisado_en`, índice `pedidos_sin_revisar_idx`, `es_admin_de_comercio`, `grant select` a `authenticated`. Su política "Admins leen pedidos de su comercio" fue reemplazada después por "Personal del comercio lee pedidos" (`empleados_etapa_1`). |
 | `historial/07_administradores_super_admin` | aplicado | Índice `admin_comercios_usuario_comercio_uidx` y grants `insert/update` a `service_role`. |
@@ -75,10 +77,12 @@ que crea o modifica están en producción; "parcial", algunos; "no aplicado", ni
 
 ### Hallazgos adicionales de la foto
 
-- **Mercado Pago sí se aplicó en la base**: existen `pagos`, `pagos_notificaciones`,
+- **Mercado Pago sí se aplicó en la base**: la foto contiene `pagos`, `pagos_notificaciones`,
   `pedidos.estado_pago` y las funciones `reservar_preferencia_mercado_pago` y
-  `confirmar_pago_mercado_pago`. El código ya no las usa (ver "Nota sobre `metodo_pago`").
-  Retirarlas requiere una migración nueva y un ticket.
+  `confirmar_pago_mercado_pago`, aunque el código se retiró en PIA-0. PIA-20
+  (`20261017210509_limpiar_rpc_pedidos.sql`) eliminó tablas y funciones; `estado_pago` se
+  conserva para PIA-3. El script original de Mercado Pago está en el tag
+  `mercado-pago-retirado`.
 - El esquema base incluye `grupos_opciones`, `opciones` y `reglas_opciones_variante`
   (modelo genérico de opciones), que ningún script del repositorio creaba.
 - Existe el event trigger `ensure_rls` con la función `public.rls_auto_enable()`, que
@@ -129,7 +133,17 @@ npx supabase migration list
 # 3. PR a develop con la migración (y el código que la usa).
 # 4. Tras el release a main, una persona aplica en producción:
 #    npx supabase link --project-ref czhbxmxhbyjpqhrpgihg && npx supabase db push
-#    Nunca desde la CI.
+#    Nunca desde la CI. Después, volver a enlazar dev.
+```
+
+Pendiente de aplicar en producción (próximo release): `20261017210509_limpiar_rpc_pedidos.sql`
+(PIA-20). Antes del `db push` contra producción, comprobar en el SQL Editor cuántas filas se
+van a perder; son de pruebas internas (el checkout de Mercado Pago nunca se habilitó):
+
+```sql
+select count(*) from public.pagos;
+select count(*) from public.pagos_notificaciones;
+select count(*) from public.pedidos where metodo_pago = 'mercado_pago';
 ```
 
 ## Enlazar la CLI
@@ -178,18 +192,3 @@ entorno nuevo desde cero.
   idempotente.
 - Las migraciones no contienen credenciales ni datos de un comercio concreto; el seed no
   contiene datos personales.
-
-## Nota sobre `metodo_pago`
-
-El pago se realiza únicamente en el local; la aplicación ya no ofrece Mercado Pago.
-Sin embargo, el contrato con la base **no cambió**: la RPC
-`registrar_pedido_desde_checkout` sigue recibiendo `p_metodo_pago` y valida
-`('efectivo', 'mercado_pago')`; la aplicación envía siempre `"efectivo"`
-(`METODO_PAGO_PEDIDO` en `src/lib/pedidos/tipos.ts`). La foto base conserva la cadena
-`'mercado_pago'` porque refleja la función desplegada.
-
-Pendiente de evaluar en una migración futura: redefinir la RPC sin `p_metodo_pago`,
-restringir `pedidos.metodo_pago` a `'efectivo'`, y retirar `estado_pago`, `pagos`,
-`pagos_notificaciones` y las dos funciones de Mercado Pago, que la reconciliación confirmó
-aplicadas. El script original ya no está en el repositorio; está en el tag
-`mercado-pago-retirado`.

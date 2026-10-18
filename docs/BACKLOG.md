@@ -19,6 +19,7 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 | Ticket | Título | Estado |
 | --- | --- | --- |
 | PIA-0 | Saneamiento del repositorio, GitFlow, migraciones y pipeline DevSecOps (ver `docs/PIPELINE.md`) | hecho, en `develop` |
+| PIA-20 | Limpiar la RPC de pedidos: retirar los objetos de Mercado Pago, contrato `metodo_pago` en `efectivo`/`tarjeta_pos` y trigger de disponibilidad en `pedido_items` (ver `docs/BASE-DE-DATOS.md`) | hecho (2026-10-17; pendiente de aplicar en producción en el próximo release) |
 
 ## Prerequisito técnico
 
