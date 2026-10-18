@@ -28,11 +28,14 @@ function cargar(archivo, modulos = {}, globales = {}) {
 
 const celular = cargar("src/lib/checkout/celular.ts");
 const comercio = cargar("src/lib/comercio.ts");
+const tiempos = cargar("src/lib/comercio/tiempos.ts");
 const MENSAJE = "🍕 ¡Hola! Tu pedido de Piamonte ya está en preparación. 👨‍🍳 ¡Gracias por elegirnos!";
+const MENSAJE_CON_TIEMPO =
+  "🍕 ¡Hola! Tu pedido de Piamonte ya está en preparación. Tiempo estimado: 30-45 min. 👨‍🍳 ¡Gracias por elegirnos!";
 const esperar = () => new Promise(resolve => setImmediate(resolve));
 
 function escenario({ telefono = "099 806 731", estado = "pendiente", fallo = false,
-  falloRed = false, bloquear = false, confirmar = true, demorar = false } = {}) {
+  falloRed = false, bloquear = false, confirmar = true, demorar = false, tiempoEstimado = null } = {}) {
   const pedido = {
     id: "pedido-prueba", numero: 42, creadoEn: "2026-10-14T12:00:00Z",
     clienteNombre: "Cliente de prueba", clienteTelefono: telefono, estado,
@@ -61,6 +64,7 @@ function escenario({ telefono = "099 806 731", estado = "pendiente", fallo = fal
     "@/lib/admin/notificacionesPedidos": { EVENTO_PEDIDOS_NUEVOS: "prueba" },
     "@/lib/checkout/celular": celular,
     "@/lib/comercio": comercio,
+    "@/lib/comercio/tiempos": tiempos,
   }, {
     window: {
       confirm: () => confirmar,
@@ -78,7 +82,7 @@ function escenario({ telefono = "099 806 731", estado = "pendiente", fallo = fal
         if (falloRed) throw new Error("Falló la conexión");
         return { ok: !fallo, json: async () => fallo
           ? { error: "La aceptación falló" }
-          : { mensaje: "Estado actualizado correctamente." } };
+          : { mensaje: "Estado actualizado correctamente.", tiempoEstimado } };
       }
       return { ok: true, json: async () => ({ pedidos: [{ ...pedido, estado: "en_preparacion" }] }) };
     },
@@ -130,6 +134,15 @@ test("Aceptar espera éxito antes de abrir WhatsApp y conserva PATCH y recarga",
   assert.equal(prueba.solicitudes[1].url, "/api/admin/pedidos");
   assert.ok(prueba.buscar("Avisar por WhatsApp"));
   assert.equal(prueba.buscar("Avisar por WhatsApp").props.href, destino);
+});
+
+test("Con rango congelado por la base, el mensaje de WhatsApp incluye el tiempo estimado", async () => {
+  const prueba = escenario({ tiempoEstimado: { min: 30, max: 45 } });
+  await prueba.pulsar();
+  assert.equal(prueba.aperturas.length, 1);
+  assert.equal(new URL(prueba.aperturas[0][0]).searchParams.get("text"), MENSAJE_CON_TIEMPO);
+  assert.equal(comercio.mensajePedidoAceptadoWhatsApp(null), MENSAJE);
+  assert.equal(comercio.mensajePedidoAceptadoWhatsApp("30-45 min"), MENSAJE_CON_TIEMPO);
 });
 
 test("Normaliza formatos uruguayos sin duplicar 598 y conserva exactamente el mensaje", async () => {

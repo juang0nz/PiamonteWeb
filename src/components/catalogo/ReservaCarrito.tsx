@@ -1,10 +1,10 @@
 "use client";
 
 import { useCarrito } from "@/lib/carrito/almacen";
-import { ContenidoCarrito } from "./ContenidoCarrito";
+import { ContenidoCarrito, type PausaCarrito } from "./ContenidoCarrito";
 
 // Panel lateral del carrito (solo escritorio ancho).
-export function ReservaCarrito() {
+export function ReservaCarrito({ pausa }: { pausa?: PausaCarrito }) {
   const { cantidadTotal } = useCarrito();
 
   return (
@@ -15,7 +15,7 @@ export function ReservaCarrito() {
       <h2 className="mb-3 font-titulos text-3xl uppercase tracking-wide">
         Tu pedido {cantidadTotal > 0 ? `(${cantidadTotal})` : ""}
       </h2>
-      <ContenidoCarrito />
+      <ContenidoCarrito pausa={pausa} />
     </aside>
   );
 }

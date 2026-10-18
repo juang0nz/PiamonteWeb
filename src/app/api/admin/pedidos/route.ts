@@ -16,6 +16,8 @@ type PedidoRow = {
   estado: string;
   metodo_pago: string;
   total: number | string;
+  tiempo_estimado_min: number | null;
+  tiempo_estimado_max: number | null;
 };
 
 type PedidoItemRow = {
@@ -54,7 +56,7 @@ export async function GET() {
   const { data: pedidosRows, error: pedidosError } = await supabase
     .from("pedidos")
     .select(
-      "id, numero, creado_en, cliente_nombre, cliente_telefono, modalidad, direccion_calle, direccion_numero, direccion_apartamento, direccion_referencias, estado, metodo_pago, total",
+      "id, numero, creado_en, cliente_nombre, cliente_telefono, modalidad, direccion_calle, direccion_numero, direccion_apartamento, direccion_referencias, estado, metodo_pago, total, tiempo_estimado_min, tiempo_estimado_max",
     )
     .eq("comercio_id", estadoAcceso.comercioId)
     .order("creado_en", { ascending: false })
@@ -170,6 +172,9 @@ export async function GET() {
         estado: pedido.estado,
         metodoPago: pedido.metodo_pago,
         total: Number(pedido.total),
+        // Rango congelado al aceptar el pedido; null en pedidos previos o pendientes.
+        tiempoEstimadoMin: pedido.tiempo_estimado_min ?? null,
+        tiempoEstimadoMax: pedido.tiempo_estimado_max ?? null,
         items: itemsPorPedido.get(pedido.id) ?? [],
       })),
     },

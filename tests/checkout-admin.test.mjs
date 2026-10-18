@@ -1497,6 +1497,7 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   let parametros;
   const tablas = {
     comercios: [{ id: "comercio", slug: "piamonte", activo: true }],
+    comercio_configuracion: [{ pedidos_pausados: false, mensaje_pausa: "" }],
     categorias: [{ id: "categoria", comercio_id: "comercio", activa: true }],
     productos: [{ id: "producto", comercio_id: "comercio", categoria_id: "categoria", nombre: "Producto", precio_base: 100, disponible: true }],
     grupos_opciones: [], reglas_opciones_variante: [],

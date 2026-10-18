@@ -55,6 +55,17 @@ export function ActualizadorCatalogo({ comercioId }: { comercioId: string }) {
         },
         actualizar,
       )
+      // Configuración operativa (PIA-2): demanda, tiempos y pausa de pedidos.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "comercio_configuracion",
+          filter: `comercio_id=eq.${comercioId}`,
+        },
+        actualizar,
+      )
       .subscribe();
 
     const intervalo = window.setInterval(actualizar, INTERVALO_RESPALDO_MS);
