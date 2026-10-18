@@ -62,6 +62,8 @@ type ReglaFila = {
 
 type RpcResultado = { pedido_id: string; pago_id?: string | null };
 
+type ConfiguracionPausaFila = { pedidos_pausados: boolean; mensaje_pausa: string };
+
 type DiagnosticoSupabase = {
   etapa: string;
   origen: string;
@@ -79,7 +81,8 @@ export class PedidoError extends Error {
       | "VALIDACION"
       | "REQUIERE_RPC"
       | "BASE_DATOS"
-      | "CONFLICTO_DATOS" = "VALIDACION",
+      | "CONFLICTO_DATOS"
+      | "PEDIDOS_PAUSADOS" = "VALIDACION",
     readonly diagnosticoSupabase?: DiagnosticoSupabase,
   ) {
     super(message);
@@ -314,6 +317,27 @@ export async function validarYRegistrarPedido(
   });
   if (!comercio) {
     fallar("El comercio no existe o no está activo.", 404);
+  }
+
+  // Pausa de pedidos (PIA-2): la UI informa, pero la barrera es esta. Sin fila de
+  // configuración el comercio no está pausado.
+  etapa = "verificar-pausa";
+  console.info("[pedidos] etapa verificar-pausa");
+  const { data: configuracion, error: configuracionError } = await supabase
+    .from("comercio_configuracion")
+    .select("pedidos_pausados, mensaje_pausa")
+    .eq("comercio_id", comercio.id)
+    .maybeSingle();
+  asegurarExito<ConfiguracionPausaFila | null>(etapa, "comercio_configuracion", {
+    data: configuracion,
+    error: configuracionError,
+  });
+  if (configuracion?.pedidos_pausados) {
+    fallar(
+      configuracion.mensaje_pausa || "El local no está tomando pedidos en este momento.",
+      409,
+      "PEDIDOS_PAUSADOS",
+    );
   }
 
   const productoIds = [...new Set(input.items.map((i) => i.productoId))];

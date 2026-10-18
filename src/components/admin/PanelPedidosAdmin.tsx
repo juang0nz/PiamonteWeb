@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EVENTO_PEDIDOS_NUEVOS } from "@/lib/admin/notificacionesPedidos";
 import { normalizarCelularUruguayo } from "@/lib/checkout/celular";
-import { MENSAJE_PEDIDO_ACEPTADO_WHATSAPP } from "@/lib/comercio";
+import { mensajePedidoAceptadoWhatsApp } from "@/lib/comercio";
+import { formatearRango } from "@/lib/comercio/tiempos";
 
 type EstadoPedido =
   | "pendiente"
@@ -36,6 +37,9 @@ type PedidoAdmin = {
   estado: string;
   metodoPago: string;
   total: number;
+  // Rango congelado al aceptar el pedido (PIA-2); null en pedidos previos o pendientes.
+  tiempoEstimadoMin?: number | null;
+  tiempoEstimadoMax?: number | null;
   items: Array<{
     nombreProducto: string;
     nombreVariante: string | null;
@@ -243,7 +247,12 @@ export function PanelPedidosAdmin({
         }),
       });
       const cuerpo = (await respuesta.json().catch(() => null)) as
-        | { mensaje?: string; error?: string; estadoActual?: string }
+        | {
+            mensaje?: string;
+            error?: string;
+            estadoActual?: string;
+            tiempoEstimado?: { min: number; max: number } | null;
+          }
         | null;
       if (!respuesta.ok) {
         throw new Error(
@@ -255,8 +264,12 @@ export function PanelPedidosAdmin({
       if (estadoActual === "pendiente" && nuevoEstado === "en_preparacion") {
         const telefono = typeof pedido.clienteTelefono === "string"
           ? normalizarCelularUruguayo(pedido.clienteTelefono) : null;
+        // El rango congelado por la base al aceptar; sin él, el mensaje base.
+        const rango = cuerpo?.tiempoEstimado
+          ? formatearRango(cuerpo.tiempoEstimado.min, cuerpo.tiempoEstimado.max)
+          : null;
         const url = telefono
-          ? `https://wa.me/${telefono.slice(1)}?text=${encodeURIComponent(MENSAJE_PEDIDO_ACEPTADO_WHATSAPP)}`
+          ? `https://wa.me/${telefono.slice(1)}?text=${encodeURIComponent(mensajePedidoAceptadoWhatsApp(rango))}`
           : null;
         setAvisoWhatsApp({ numeroPedido: pedido.numero, url });
         if (url) {
@@ -446,6 +459,15 @@ export function PanelPedidosAdmin({
                       <p className="text-sm text-negro/70">
                         Pago:{" "}
                         <span className="font-semibold text-negro">{pedido.metodoPago}</span>
+                        {typeof pedido.tiempoEstimadoMin === "number" &&
+                          typeof pedido.tiempoEstimadoMax === "number" && (
+                            <span>
+                              {" · "}Estimado:{" "}
+                              <span className="font-semibold text-negro">
+                                {formatearRango(pedido.tiempoEstimadoMin, pedido.tiempoEstimadoMax)}
+                              </span>
+                            </span>
+                          )}
                       </p>
                       <p className="text-lg font-bold text-negro">
                         {formatearMoneda(pedido.total)}

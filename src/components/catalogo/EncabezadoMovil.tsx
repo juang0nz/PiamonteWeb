@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
 import { useCarrito } from "@/lib/carrito/almacen";
-import { ContenidoCarrito } from "./ContenidoCarrito";
+import { ContenidoCarrito, type PausaCarrito } from "./ContenidoCarrito";
 import { Dialogo } from "./Dialogo";
 import { NavegacionPiamonte } from "./NavegacionPiamonte";
 import type { EstadoApertura } from "@/lib/comercio/horarios";
@@ -15,11 +15,13 @@ export function EncabezadoMovil({
   categoriaActiva,
   abrirCarritoInicio = false,
   estadoApertura,
+  pausa,
 }: {
   nombreComercio: string;
   categoriaActiva?: string;
   abrirCarritoInicio?: boolean;
   estadoApertura: EstadoApertura;
+  pausa?: PausaCarrito;
 }) {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [carritoAbierto, setCarritoAbierto] = useState(abrirCarritoInicio);
@@ -123,7 +125,7 @@ export function EncabezadoMovil({
       {carritoAbierto && (
         <Dialogo titulo="TU PEDIDO" onCerrar={() => setCarritoAbierto(false)}>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <ContenidoCarrito />
+            <ContenidoCarrito pausa={pausa} />
           </div>
         </Dialogo>
       )}

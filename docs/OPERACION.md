@@ -83,6 +83,36 @@ de registro y consultas administrativas. No publicar ni compartir la clave.
 Las variables anteriores `CLIENTES_*` ya no se utilizan y pueden retirarse de la
 configuración del despliegue. No es necesario modificar Google ni Phone en Supabase.
 
+## Operación: demanda, tiempos estimados y pausa (PIA-2)
+
+En **Administración → Operación** (visible solo para `owner`, `admin` y super admin; el rol
+`empleado` no ve el enlace y su API responde 403) se configura, sin tocar código, la
+operación del día. Todo se guarda en la tabla `comercio_configuracion` (una fila por
+comercio) mediante la RPC auditada `admin_actualizar_configuracion_comercio`, que registra
+cada cambio en `auditoria_eventos` con los valores anteriores y nuevos (entidad
+`comercio_configuracion`).
+
+| Control | Qué hace | Qué ve el cliente |
+| --- | --- | --- |
+| **Demanda** (`normal` / `alta`) | Cambia de inmediato qué rango de minutos se informa. | La carta (barra de escritorio) y el checkout muestran el rango del nivel vigente para retiro y envío. |
+| **Pedidos pausados** + mensaje | Deja de recibir pedidos. Se guarda con el botón de la sección. | Banner con el mensaje en la carta, botón "Pedidos en pausa" en el carrito y checkout bloqueado. `POST /api/pedidos/registrar` responde `409` con `code: "PEDIDOS_PAUSADOS"`: la UI informa, el servidor es la barrera. |
+| **Tiempos estimados** (sección plegable) | Ocho campos en minutos: retiro y envío × demanda normal y alta, cada uno con mínimo y máximo (0 a 240, máximo ≥ mínimo). | El texto "15-30 min" se arma con `formatearRango` (`src/lib/comercio/tiempos.ts`). |
+
+Los valores iniciales de la migración (retiro 15-30, envío 30-45; en demanda alta +15) son
+provisorios y se ajustan desde el panel. La carta reacciona en menos de un minuto: escucha la
+tabla por Realtime y, como respaldo, se actualiza cada 30 segundos.
+
+**Tiempo congelado en el pedido.** Al aceptar un pedido ("Aceptar pedido", transición a *en
+preparación*) la RPC `admin_actualizar_estado_pedido_auditado` guarda en
+`pedidos.tiempo_estimado_min/max` el rango vigente para la modalidad del pedido. Cambiar la
+demanda o los minutos después **no** modifica pedidos ya aceptados. El panel de pedidos
+muestra "Estimado: 30-45 min" y el aviso de WhatsApp incluye ese rango
+(`mensajePedidoAceptadoWhatsApp` en `src/lib/comercio.ts`; PIA-8 reutiliza esta función).
+Los pedidos anteriores a esta versión quedan sin rango y el mensaje se envía sin él.
+
+Lo que no cambia en esta etapa: horarios, mensaje de pago y tarifa de envío. PIA-3 agregará
+`costo_envio` y el perímetro a la misma tabla con una migración nueva.
+
 ## Desarrollo y verificación
 
 ### Acceso de empleados por correo
@@ -209,4 +239,10 @@ Pruebas manuales:
    consulta el comercio resuelto por el servidor, aunque se envíe otro ID en la URL.
 7. Revisar móvil y escritorio: carta/carrito/checkout sin enlaces de cuentas y
    Clientes responsive. Las rutas retiradas devuelven 404 y no tienen enlaces internos.
+8. Operación: pasar a demanda alta y comprobar que la carta muestra los rangos de ese nivel
+   sin recargar a mano; editar un rango y verificar la fila en `auditoria_eventos`; activar la
+   pausa y comprobar banner, checkout bloqueado y `409 PEDIDOS_PAUSADOS` en un `POST` directo;
+   con la pausa desactivada, hacer un pedido, aceptarlo y verificar `tiempo_estimado_min/max`
+   en `pedidos`, que no cambia al cambiar la demanda y que el aviso de WhatsApp incluye el
+   rango; con un usuario `empleado`, Operación no aparece y `PATCH /api/admin/operacion` da 403.
 

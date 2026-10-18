@@ -5,6 +5,7 @@ import type {
   ErroresCheckout,
 } from "@/lib/checkout/tipos";
 import { MENSAJE_PAGO } from "@/lib/comercio";
+import { rangoPorModalidad, type TiemposVigentes } from "@/lib/comercio/tiempos";
 import { CampoTexto } from "./CampoTexto";
 import { SelectorEntrega } from "./SelectorEntrega";
 
@@ -14,15 +15,21 @@ export function FormularioCheckout({
   id,
   datos,
   errores,
+  tiempos,
   onCambio,
   onEnviar,
 }: {
   id: string;
   datos: DatosCheckout;
   errores: ErroresCheckout;
+  tiempos?: TiemposVigentes;
   onCambio: (cambios: Partial<DatosCheckout>) => void;
   onEnviar: () => void;
 }) {
+  // Tiempo estimado vigente para la modalidad elegida (PIA-2); se oculta hasta elegir una.
+  const rangoEstimado =
+    tiempos && datos.tipoEntrega ? rangoPorModalidad(tiempos, datos.tipoEntrega) : null;
+
   return (
     <form
       id={id}
@@ -39,6 +46,12 @@ export function FormularioCheckout({
           onCambio={(tipoEntrega) => onCambio({ tipoEntrega })}
           error={errores.tipoEntrega}
         />
+        {rangoEstimado && (
+          <p role="status" className="mt-3 text-sm text-negro/70">
+            Tiempo estimado{datos.tipoEntrega === "retiro" ? " de retiro" : " de entrega"}:{" "}
+            <strong className="font-semibold text-negro">{rangoEstimado.texto}</strong>
+          </p>
+        )}
       </Seccion>
 
       <Seccion titulo="¿Cómo lo pagás?">

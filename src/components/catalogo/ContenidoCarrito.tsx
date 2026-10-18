@@ -4,9 +4,15 @@ import Link from "next/link";
 import { formatearPrecio } from "@/lib/catalogo/formato";
 import { cambiarCantidad, quitarItem, useCarrito } from "@/lib/carrito/almacen";
 
+export type PausaCarrito = { pausado: boolean; mensaje: string };
+
 // Contenido del carrito: lista de ítems con su configuración, cantidades y total.
-// Todavía no incluye checkout ni pagos.
-export function ContenidoCarrito() {
+// Si el comercio pausó los pedidos, el botón de finalizar se reemplaza por el aviso.
+export function ContenidoCarrito({
+  pausa = { pausado: false, mensaje: "" },
+}: {
+  pausa?: PausaCarrito;
+}) {
   const { items, total } = useCarrito();
   const envio = 0;
   const totalFinal = total + envio;
@@ -107,12 +113,28 @@ export function ContenidoCarrito() {
         </p>
       </div>
 
-      <Link
-        href="/checkout"
-        className="mt-4 block w-full rounded-xl bg-rojo px-5 py-3 text-center text-sm font-bold uppercase tracking-wide text-crema transition-colors hover:bg-[#b11118]"
-      >
-        Finalizar pedido
-      </Link>
+      {pausa.pausado ? (
+        <div className="mt-4 space-y-2">
+          <p role="status" className="rounded-xl border border-rojo/30 bg-rojo/10 px-4 py-3 text-sm text-rojo">
+            {pausa.mensaje}
+          </p>
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            className="block w-full cursor-not-allowed rounded-xl bg-negro/20 px-5 py-3 text-center text-sm font-bold uppercase tracking-wide text-negro/50"
+          >
+            Pedidos en pausa
+          </button>
+        </div>
+      ) : (
+        <Link
+          href="/checkout"
+          className="mt-4 block w-full rounded-xl bg-rojo px-5 py-3 text-center text-sm font-bold uppercase tracking-wide text-crema transition-colors hover:bg-[#b11118]"
+        >
+          Finalizar pedido
+        </Link>
+      )}
     </div>
   );
 }

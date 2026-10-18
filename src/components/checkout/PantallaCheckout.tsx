@@ -14,12 +14,23 @@ import {
 import { useHidratado } from "@/lib/hidratacion";
 import { SLUG_COMERCIO } from "@/lib/comercio";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
+import type { TiemposVigentes } from "@/lib/comercio/tiempos";
 import { FormularioCheckout } from "./FormularioCheckout";
 import { ResumenPedido } from "./ResumenPedido";
 
 const ID_FORMULARIO = "formulario-checkout";
 
-export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
+export type PausaCheckout = { pausado: boolean; mensaje: string };
+
+export function PantallaCheckout({
+  hrefCarrito,
+  tiempos,
+  pausa = { pausado: false, mensaje: "" },
+}: {
+  hrefCarrito: string;
+  tiempos?: TiemposVigentes;
+  pausa?: PausaCheckout;
+}) {
   const hidratado = useHidratado();
   const { items, total } = useCarrito();
   const datos = useDatosCheckout();
@@ -74,6 +85,12 @@ export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
       setErrorServidor(
         `El local está cerrado. Marcá la opción para programar el pedido para ${estadoApertura.horaApertura}.`,
       );
+      return;
+    }
+    // Pausa de pedidos (PIA-2): la UI corta antes de enviar; el servidor rechaza igual.
+    if (pausa.pausado) {
+      setEstadoEnvio("idle");
+      setErrorServidor(pausa.mensaje || "El local no está tomando pedidos en este momento.");
       return;
     }
 
@@ -191,6 +208,7 @@ export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
           id={ID_FORMULARIO}
           datos={datos}
           errores={errores}
+          tiempos={tiempos}
           onCambio={cambiar}
           onEnviar={() => {
             void confirmarPedido();
@@ -199,6 +217,15 @@ export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
 
         <div className="lg:sticky lg:top-8">
           <ResumenPedido items={items} subtotal={total}>
+            {pausa.pausado && (
+              <p
+                role="status"
+                className="mb-3 block rounded-xl border border-rojo/30 bg-rojo/10 p-3 text-sm text-rojo"
+              >
+                <span className="mb-1 block font-semibold">Pedidos en pausa</span>
+                <span className="block text-xs text-rojo/90">{pausa.mensaje}</span>
+              </p>
+            )}
             {!estadoApertura.abierto && (
               <label className="mb-3 block rounded-xl border border-rojo/30 bg-rojo/10 p-3 text-sm text-rojo">
                 <span className="mb-1 block font-semibold">Local cerrado en este momento</span>
@@ -222,11 +249,16 @@ export function PantallaCheckout({ hrefCarrito }: { hrefCarrito: string }) {
               form={ID_FORMULARIO}
               disabled={
                 estadoEnvio === "enviando" ||
+                pausa.pausado ||
                 (!estadoApertura.abierto && !datos.programarParaApertura)
               }
               className="w-full rounded-full bg-rojo px-6 py-3.5 font-semibold text-white transition-colors hover:bg-negro disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {estadoEnvio === "enviando" ? "Confirmando pedido…" : "Confirmar pedido"}
+              {estadoEnvio === "enviando"
+                ? "Confirmando pedido…"
+                : pausa.pausado
+                  ? "Pedidos en pausa"
+                  : "Confirmar pedido"}
             </button>
             {intentoEnviar && Object.keys(errores).length > 0 && (
               <p role="alert" className="mt-3 text-center text-xs text-rojo">

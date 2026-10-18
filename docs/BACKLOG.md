@@ -20,6 +20,7 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 | --- | --- | --- |
 | PIA-0 | Saneamiento del repositorio, GitFlow, migraciones y pipeline DevSecOps (ver `docs/PIPELINE.md`) | hecho, en `develop` |
 | PIA-20 | Limpiar la RPC de pedidos: retirar los objetos de Mercado Pago, contrato `metodo_pago` en `efectivo`/`tarjeta_pos` y trigger de disponibilidad en `pedido_items` (ver `docs/BASE-DE-DATOS.md`) | hecho (2026-10-17; pendiente de aplicar en producción en el próximo release) |
+| PIA-2 | Gestión de demanda (normal/alta), tiempos estimados configurables por nivel y modalidad, tiempo congelado en cada pedido, y pausa de pedidos desde el panel Operación (PIAM-02; ver `docs/OPERACION.md`) | hecho (2026-10-18; valores iniciales provisorios, configurables desde el panel; migración pendiente de aplicar en producción en el próximo release) |
 
 ## Prerequisito técnico
 
@@ -31,7 +32,7 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 
 | Ticket | Título (origen) | Prioridad | Dependencias | Estado |
 | --- | --- | --- | --- | --- |
-| PIA-2 | Gestión de demanda (normal/alta), tiempos estimados configurables por nivel y modalidad, tiempo congelado en cada pedido, y pausa de pedidos desde el panel (PIAM-02) | alta | PIA-1 | pendiente — definir minutos de cada nivel y si delivery suma traslado |
+| PIA-2 | Gestión de demanda (normal/alta), tiempos estimados configurables por nivel y modalidad, tiempo congelado en cada pedido, y pausa de pedidos desde el panel (PIAM-02) | alta | PIA-1 | hecho (2026-10-18; ver "Hecho") |
 | PIA-3 | Modalidades de entrega y medios de pago reales: delivery+efectivo, delivery+tarjeta POS («Llevar POS»), retiro+pago en local; tarifa única de delivery administrable y desglosada en el total (PIAM-05) | alta | PIA-2 (configuración operativa del comercio) | pendiente |
 | PIA-4 | Descuento automático para pedidos web, porcentual, configurable y activable desde el panel; se calcula sobre productos, no sobre envío; se conserva en el pedido (PIAM-08) | alta | PIA-3 (cálculo de totales) | pendiente — definir porcentaje inicial |
 | PIA-5 | Zona de cobertura de delivery por perímetro: editor de polígono en el panel, geocodificación de la dirección, validación punto-en-polígono en el servidor (PostGIS), fallback para direcciones no localizables (PIAM-01) | alta | Perímetro definido por Fede; elección de proveedor de geocodificación y su costo | bloqueado (definición del cliente) |

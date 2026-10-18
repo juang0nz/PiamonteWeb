@@ -180,13 +180,45 @@ export async function PATCH(request: Request) {
     );
   }
 
+  // Al aceptar, la RPC congela el rango estimado vigente; se devuelve para que el panel
+  // lo incluya en el aviso de WhatsApp sin otra recarga. Si la lectura falla, el estado ya
+  // cambió y la respuesta sigue siendo exitosa, solo sin el rango.
+  const tiempoEstimado =
+    nuevoEstado === "en_preparacion"
+      ? await leerTiempoEstimado(supabase, pedidoId, acceso.comercioId)
+      : null;
+
   return NextResponse.json(
     {
       ok: true,
       pedidoId,
       estado: nuevoEstado,
+      tiempoEstimado,
       mensaje: "Estado actualizado correctamente.",
     },
     { status: 200 },
   );
+}
+
+async function leerTiempoEstimado(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  pedidoId: string,
+  comercioId: string,
+): Promise<{ min: number; max: number } | null> {
+  try {
+    // El cliente de sesión puede leer el pedido por la política "Personal del comercio lee pedidos".
+    const { data, error } = await supabase
+      .from("pedidos")
+      .select("tiempo_estimado_min, tiempo_estimado_max")
+      .eq("id", pedidoId)
+      .eq("comercio_id", comercioId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const fila = data as { tiempo_estimado_min: number | null; tiempo_estimado_max: number | null };
+    if (fila.tiempo_estimado_min === null || fila.tiempo_estimado_max === null) return null;
+    return { min: fila.tiempo_estimado_min, max: fila.tiempo_estimado_max };
+  } catch (errorLectura) {
+    console.warn("No se pudo leer el tiempo estimado del pedido aceptado:", errorLectura);
+    return null;
+  }
 }

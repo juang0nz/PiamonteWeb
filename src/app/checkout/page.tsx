@@ -5,6 +5,8 @@ import { PantallaCheckout } from "@/components/checkout/PantallaCheckout";
 import { obtenerComercio } from "@/lib/catalogo/consultas";
 import type { Comercio } from "@/lib/catalogo/tipos";
 import { SLUG_COMERCIO } from "@/lib/comercio";
+import { obtenerEstadoOperativo } from "@/lib/comercio/configuracion";
+import { CONFIGURACION_INICIAL, tiemposPorDemanda } from "@/lib/comercio/tiempos";
 
 export const metadata: Metadata = {
   title: "Finalizar pedido",
@@ -36,11 +38,23 @@ export default async function PaginaCheckout() {
     );
   }
 
+  // Tiempos vigentes y pausa (PIA-2). Ante un error de lectura se muestran los valores
+  // iniciales y no se bloquea la UI: el servidor rechaza igual si hay pausa.
+  let { tiempos, pausa } = {
+    tiempos: tiemposPorDemanda(CONFIGURACION_INICIAL),
+    pausa: { pausado: false, mensaje: "" },
+  };
+  try {
+    ({ tiempos, pausa } = await obtenerEstadoOperativo(comercio.id));
+  } catch (errorConfiguracion) {
+    console.error("No se pudo leer la configuración operativa del comercio:", errorConfiguracion);
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       <EncabezadoCheckout nombreComercio={comercio.nombre} />
       <main className="flex-1 bg-gradient-to-b from-[#fff3ee] via-[#fff8f2] to-[#fffdf8] px-4 py-6 text-[#171717] sm:px-8 lg:py-10">
-        <PantallaCheckout hrefCarrito={HREF_CARRITO} />
+        <PantallaCheckout hrefCarrito={HREF_CARRITO} tiempos={tiempos} pausa={pausa} />
       </main>
     </div>
   );

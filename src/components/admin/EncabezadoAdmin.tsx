@@ -13,7 +13,8 @@ export function EncabezadoAdmin({
     | "clientes"
     | "disponibilidad"
     | "catalogo"
-    | "empleados";
+    | "empleados"
+    | "operacion";
   rol: RolAccesoAdmin | null;
   esSuperAdmin?: boolean;
 }) {
@@ -28,7 +29,9 @@ export function EncabezadoAdmin({
           ? "Catálogo"
           : seccion === "empleados"
             ? "Empleados"
-            : "Disponibilidad";
+            : seccion === "operacion"
+              ? "Operación"
+              : "Disponibilidad";
   return (
     <header className="border-b border-crema/10 bg-negro text-crema">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
@@ -50,6 +53,8 @@ export function EncabezadoAdmin({
                   className={`rounded-full px-4 py-2 ${seccion === "clientes" ? "bg-crema text-negro" : "border border-crema/25 hover:bg-crema/10"}`}>Clientes</Link>
                 <Link href="/admin/empleados" aria-current={seccion === "empleados" ? "page" : undefined}
                   className={`rounded-full px-4 py-2 ${seccion === "empleados" ? "bg-crema text-negro" : "border border-crema/25 hover:bg-crema/10"}`}>Empleados</Link>
+                <Link href="/admin/operacion" aria-current={seccion === "operacion" ? "page" : undefined}
+                  className={`rounded-full px-4 py-2 ${seccion === "operacion" ? "bg-crema text-negro" : "border border-crema/25 hover:bg-crema/10"}`}>Operación</Link>
               </>
             )}
           </nav>
