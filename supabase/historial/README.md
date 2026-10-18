@@ -27,7 +27,7 @@ dependencias declaradas en la cabecera de cada script.
 | 01 | `super_admin` | — (crea `super_admins`, `es_super_admin_activo`) |
 | 02 | `registrar_pedido_desde_checkout` | esquema base |
 | 03 | `gestion_catalogo_admin` | esquema base |
-| 04 | `disponibilidad_productos` | esquema base, `admin_comercios` |
+| 04 | `disponibilidad_productos` | esquema base, `admin_comercios`. Su función y trigger `validar_disponibilidad_item_pedido` se aplicaron en PIA-20 (`migrations/20261017210509_limpiar_rpc_pedidos.sql`); sus políticas no, porque el esquema base ya cubre la lectura pública |
 | 05 | `storage_imagenes_productos` | — |
 | 06 | `notificaciones_pedidos_realtime` | `admin_comercios` (crea `es_admin_de_comercio`) |
 | 07 | `administradores_super_admin` | `admin_comercios` |
