@@ -1495,6 +1495,7 @@ test("API Clientes no entrega un resumen parcial cuando falla una consulta", asy
 });
 test("Registro de invitado mantiene RPC, precios calculados, celular normalizado y número", async () => {
   let parametros;
+  const operacionesPrivadas = [];
   const tablas = {
     comercios: [{ id: "comercio", slug: "piamonte", activo: true }],
     comercio_configuracion: [{ pedidos_pausados: false, mensaje_pausa: "" }],
@@ -1506,13 +1507,30 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
     from: tabla => {
       const consulta = {
         select: () => consulta, eq: () => consulta, in: () => consulta,
-        maybeSingle: async () => ({ data: tabla === "pedidos" ? { numero: 42 } : tablas[tabla][0], error: null }),
+        maybeSingle: async () => ({ data: tablas[tabla][0], error: null }),
         then: resolver => Promise.resolve({ data: tablas[tabla], error: null }).then(resolver),
+      };
+      return consulta;
+    },
+  };
+  const privado = {
+    from: tabla => {
+      assert.equal(tabla, "pedidos");
+      operacionesPrivadas.push(tabla);
+      const consulta = {
+        select: columnas => { assert.equal(columnas, "numero"); return consulta; },
+        eq: (columna, valor) => {
+          assert.equal(columna, "id");
+          assert.equal(valor, "pedido-prueba");
+          return consulta;
+        },
+        maybeSingle: async () => ({ data: { numero: 42 }, error: null }),
       };
       return consulta;
     },
     rpc: async (nombre, args) => {
       assert.equal(nombre, "registrar_pedido_desde_checkout");
+      operacionesPrivadas.push(nombre);
       parametros = args;
       return { data: [{ pedido_id: "pedido-prueba" }], error: null };
     },
@@ -1520,7 +1538,8 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   const registrar = cargar("src/lib/pedidos/registrar.ts", {
     "@/lib/catalogo/configurador": { limitesGrupo() { throw new Error("No hay grupos"); } },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto: true }) },
-    "@/lib/supabase/private": { createPrivateClient: () => supabase },
+    "@/lib/supabase/server": { createClient: async () => supabase },
+    "@/lib/supabase/private": { createPrivateClient: () => privado },
     "@/lib/checkout/tipos": checkout, "@/lib/checkout/celular": celular,
     "./tipos": { METODO_PAGO_PEDIDO: "efectivo" },
   });
@@ -1538,7 +1557,9 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   assert.equal(parametros.p_direccion_calle, null);
   assert.equal(resultado.numeroPedido, 42);
   assert.equal(resultado.pedidoId, "pedido-prueba");
+  assert.deepEqual(operacionesPrivadas, ["registrar_pedido_desde_checkout", "pedidos"]);
   await assert.rejects(registrar.validarYRegistrarPedido({ ...input, checkout: { ...input.checkout, telefono: "24001234" } }), /datos del checkout/);
+  assert.equal(operacionesPrivadas.length, 2);
 });
 test("Endpoint público registra sin consultar sesión", async () => {
   let recibido;

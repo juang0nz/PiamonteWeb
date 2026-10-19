@@ -1,6 +1,7 @@
 import { limitesGrupo } from "@/lib/catalogo/configurador";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
 import { validarDatosCheckout } from "@/lib/checkout/tipos";
+import { createClient } from "@/lib/supabase/server";
 import { createPrivateClient } from "@/lib/supabase/private";
 import { normalizarCelularUruguayo } from "@/lib/checkout/celular";
 import type { PostgrestError } from "@supabase/supabase-js";
@@ -299,9 +300,9 @@ export async function validarYRegistrarPedido(
       "VALIDACION",
     );
   }
-  etapa = "crear-cliente-privado";
-  console.info("[pedidos] etapa crear-cliente-privado");
-  const supabase = createPrivateClient();
+  etapa = "crear-cliente-servidor";
+  console.info("[pedidos] etapa crear-cliente-servidor");
+  const supabase = await createClient();
 
   etapa = "buscar-comercio";
   console.info("[pedidos] etapa buscar-comercio");
@@ -520,7 +521,8 @@ export async function validarYRegistrarPedido(
   // Registro atómico: se ejecuta TODO dentro de un RPC con transacción.
   etapa = "ejecutar-rpc-registrar-pedido";
   console.info("[pedidos] etapa ejecutar-rpc-registrar-pedido");
-  const { data: rpcData, error: rpcError } = await supabase.rpc(
+  const supabasePrivado = createPrivateClient();
+  const { data: rpcData, error: rpcError } = await supabasePrivado.rpc(
     "registrar_pedido_desde_checkout",
     {
       p_comercio_id: pedidoCalculado.comercioId,
@@ -622,7 +624,7 @@ export async function validarYRegistrarPedido(
   console.info("[pedidos] pedido_id devuelto por rpc", { pedidoId: fila.pedido_id });
   // Número correlativo visible en el panel del local; es el que se le muestra al cliente.
   // Si la consulta falla, el pedido ya quedó registrado, así que no se interrumpe el flujo.
-  const { data: pedidoCreado, error: errorNumero } = await supabase
+  const { data: pedidoCreado, error: errorNumero } = await supabasePrivado
     .from("pedidos")
     .select("numero")
     .eq("id", fila.pedido_id)
