@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CLAVES_RANGOS,
   MINUTOS_MAXIMOS,
+  COSTO_ENVIO_MAXIMO,
   formatearRango,
   tiemposPorDemanda,
   validarRangos,
+  validarCostoEnvio,
   type ClaveConfiguracion,
   type ClaveRango,
   type ConfiguracionOperativa,
@@ -17,14 +19,14 @@ type Configuracion = ConfiguracionOperativa & { actualizado_en: string };
 
 type Cambios = Partial<Record<ClaveConfiguracion, string | number | boolean>>;
 
-type Seccion = "demanda" | "pausa" | "tiempos";
+type Seccion = "demanda" | "pausa" | "tiempos" | "delivery";
 
 const ETIQUETAS_NIVEL: Record<NivelDemanda, string> = {
   normal: "Normal",
   alta: "Alta",
 };
 
-// Panel "Operación" (PIA-2): nivel de demanda, pausa de pedidos y tiempos estimados.
+// Panel "Operación": demanda, pausa, tiempos estimados y tarifa de delivery.
 // Cada sección guarda solo sus claves mediante PATCH /api/admin/operacion (RPC auditada).
 export function PanelOperacionAdmin() {
   const [configuracion, setConfiguracion] = useState<Configuracion | null>(null);
@@ -32,6 +34,8 @@ export function PanelOperacionAdmin() {
   const [guardando, setGuardando] = useState<Seccion | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
+  const [costoEnvioBorrador, setCostoEnvioBorrador] = useState("");
+  const [errorCostoEnvio, setErrorCostoEnvio] = useState<string | null>(null);
 
   // Borradores de las secciones con botón Guardar.
   const [pausaBorrador, setPausaBorrador] = useState<{ activa: boolean; mensaje: string }>({
@@ -53,6 +57,8 @@ export function PanelOperacionAdmin() {
       >,
     );
     setErroresRangos({});
+    setCostoEnvioBorrador(String(fila.costo_envio));
+    setErrorCostoEnvio(null);
   }, []);
 
   const cargar = useCallback(async () => {
@@ -156,6 +162,21 @@ export function PanelOperacionAdmin() {
     void guardar("tiempos", valores, "Tiempos estimados guardados.");
   }
 
+  function guardarDelivery() {
+    const texto = costoEnvioBorrador.trim().replace(",", ".");
+    const costo = Number(texto);
+    const errorImporte = validarCostoEnvio(costo);
+    const error = errorImporte ?? (
+      /^\d+(?:\.\d{1,2})?$/.test(texto)
+        ? null
+        : "Ingresá un importe en UYU con hasta dos decimales."
+    );
+    setErrorCostoEnvio(error);
+    setMensaje(null);
+    if (error) return;
+    void guardar("delivery", { costo_envio: costo }, "Costo de envío guardado correctamente.");
+  }
+
   if (cargando) {
     return (
       <div className="rounded-3xl border border-negro/10 bg-white p-8 shadow-[0_20px_45px_rgba(0,0,0,0.08)]">
@@ -193,11 +214,11 @@ export function PanelOperacionAdmin() {
       <div className="rounded-3xl border border-negro/10 bg-white p-5 shadow-[0_20px_45px_rgba(0,0,0,0.08)]">
         <p className="text-xs font-semibold uppercase tracking-wider text-rojo">Operación</p>
         <h2 className="mt-1 font-titulos text-2xl uppercase tracking-wide text-negro">
-          Demanda, tiempos y pausa
+          Demanda, tiempos, pausa y delivery
         </h2>
         <p className="mt-1 text-sm text-negro/60">
-          Lo que cambiás acá se ve en la carta y el checkout en menos de un minuto. Los pedidos
-          ya aceptados conservan el tiempo que se les informó.
+          Los cambios de demanda, tiempos y pausa se ven en la carta y el checkout en menos de
+          un minuto. Los pedidos ya aceptados conservan el tiempo que se les informó.
         </p>
       </div>
 
@@ -333,6 +354,58 @@ export function PanelOperacionAdmin() {
           </button>
         </section>
       </div>
+
+      <section aria-labelledby="delivery-titulo" className="space-y-4 rounded-3xl border border-negro/10 bg-white p-5 shadow-[0_20px_45px_rgba(0,0,0,0.08)]">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-rojo">Delivery</p>
+          <h3 id="delivery-titulo" className="mt-1 font-titulos text-xl uppercase tracking-wide text-negro">
+            Costo de envío
+          </h3>
+          <p className="mt-1 text-sm text-negro/60">
+            Tarifa configurada: {new Intl.NumberFormat("es-UY", {
+              style: "currency", currency: "UYU", minimumFractionDigits: 2,
+            }).format(configuracion.costo_envio)} UYU. El retiro no tiene costo de envío.
+          </p>
+          <p className="mt-1 text-sm text-negro/60">
+            Esta etapa guarda la tarifa. Su aplicación en el checkout se incorporará más adelante.
+          </p>
+        </div>
+        <form
+          noValidate
+          onSubmit={(evento) => { evento.preventDefault(); guardarDelivery(); }}
+          className="grid items-start gap-4 sm:grid-cols-2"
+        >
+          <label className="block">
+            <span className="text-sm font-semibold text-negro">Costo de envío (UYU)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={costoEnvioBorrador}
+              disabled={bloqueado}
+              aria-invalid={errorCostoEnvio ? true : undefined}
+              aria-describedby="delivery-ayuda"
+              onChange={(evento) => {
+                setCostoEnvioBorrador(evento.target.value);
+                setErrorCostoEnvio(null);
+                setMensaje(null);
+              }}
+              className={`mt-1.5 w-full min-w-0 rounded-2xl border bg-fondo px-4 py-2.5 text-sm text-negro focus:border-rojo focus:outline-none focus:ring-2 focus:ring-rojo/20 ${
+                errorCostoEnvio ? "border-rojo" : "border-negro/15"
+              }`}
+            />
+            <span id="delivery-ayuda" className={`mt-1 block text-xs ${errorCostoEnvio ? "text-rojo" : "text-negro/60"}`} role={errorCostoEnvio ? "alert" : undefined}>
+              {errorCostoEnvio ?? `Desde 0 hasta ${COSTO_ENVIO_MAXIMO.toLocaleString("es-UY")} UYU, con hasta dos decimales. Podés usar coma o punto.`}
+            </span>
+          </label>
+          <button
+            type="submit"
+            disabled={bloqueado}
+            className="w-full rounded-full bg-rojo px-5 py-3 text-sm font-semibold text-white hover:bg-negro disabled:cursor-not-allowed disabled:opacity-45 sm:mt-6"
+          >
+            {guardando === "delivery" ? "Guardando…" : "Guardar delivery"}
+          </button>
+        </form>
+      </section>
 
       {/* Tiempos estimados */}
       <details className="group rounded-3xl border border-negro/10 bg-white shadow-[0_20px_45px_rgba(0,0,0,0.08)]">

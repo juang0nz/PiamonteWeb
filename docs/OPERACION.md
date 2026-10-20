@@ -110,8 +110,36 @@ muestra "Estimado: 30-45 min" y el aviso de WhatsApp incluye ese rango
 (`mensajePedidoAceptadoWhatsApp` en `src/lib/comercio.ts`; PIA-8 reutiliza esta función).
 Los pedidos anteriores a esta versión quedan sin rango y el mensaje se envía sin él.
 
-Lo que no cambia en esta etapa: horarios, mensaje de pago y tarifa de envío. PIA-3 agregará
-`costo_envio` y el perímetro a la misma tabla con una migración nueva.
+### Delivery: tarifa configurable (PIA-3, etapa 2)
+
+La sección **Delivery** de Operación muestra la tarifa guardada en pesos uruguayos
+(`UYU`) y permite editarla a los mismos roles autorizados: `owner`, `admin` y
+super admin. El rol `empleado` sigue sin acceso.
+
+- **Guardar delivery** envía únicamente `costo_envio` a la API existente, con un
+  identificador de operación y el cliente de sesión. La RPC administrativa registra
+  el cambio en la auditoría; no hay escritura directa en la tabla.
+- Acepta cero e importes positivos hasta 9999999999,99 UYU, con máximo dos
+  decimales. El campo acepta coma o punto; la API exige un número JSON válido.
+  Vacíos, negativos, importes no finitos y decimales adicionales se rechazan.
+- Durante el guardado se bloquean los controles; se informa el éxito o el error.
+  Si falla el guardado, se conserva el borrador para corregirlo o reintentar.
+- La tarifa inicial definida en la migración de etapa 1 es 0 UYU; el retiro
+  no tiene costo de envío.
+
+**Migración pendiente:** no se aplicó ni modificó la migración de etapa 1. Hasta
+que se aplique con autorización, la API puede devolver 503 indicando que falta
+PIA-3 y el panel muestra el error con la opción de reintentar. No simula una tarifa
+guardada ni modifica Supabase para resolverlo. La consulta de Operación incluye la
+nueva columna, por lo que su carga requiere esa migración.
+
+Esta etapa **no aplica la tarifa al checkout**, no cambia el registro de pedidos,
+notificaciones, mensajes de pago, horarios ni perímetros. La futura aplicación debe
+coordinarse con la adaptación del checkout por el cambio de firma de la RPC de pedidos.
+
+Verificación enfocada: `node --test tests/operacion.test.mjs`. Incluye validación
+monetaria, roles, filtro por comercio, contrato auditado, errores de migración y
+eventos del panel con dobles de hooks/fetch, sin conexiones remotas.
 
 ## Desarrollo y verificación
 
@@ -245,4 +273,3 @@ Pruebas manuales:
    con la pausa desactivada, hacer un pedido, aceptarlo y verificar `tiempo_estimado_min/max`
    en `pedidos`, que no cambia al cambiar la demanda y que el aviso de WhatsApp incluye el
    rango; con un usuario `empleado`, Operación no aparece y `PATCH /api/admin/operacion` da 403.
-
