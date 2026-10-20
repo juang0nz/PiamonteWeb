@@ -40,6 +40,90 @@ Los doce scripts que antes estaban en `supabase/migrations/` se movieron a
 [`supabase/historial/`](../supabase/historial/README.md) como documentación. Los tres de
 [`supabase/pendientes/`](../supabase/pendientes/README.md) siguen allí con su conclusión.
 
+### PIA-3, etapa 1: contrato preparado, sin aplicar
+
+La migración [`20261020145041_medios_pago_costo_envio.sql`](../supabase/migrations/20261020145041_medios_pago_costo_envio.sql)
+está preparada para revisión; **no se aplicó en desarrollo ni producción**. Requiere
+la cadena hasta PIA-2. No ejecutar el procedimiento de aplicación de abajo para esta
+etapa: primero deben adaptarse los llamadores del checkout en una etapa posterior.
+
+- `comercio_configuracion.costo_envio`: `numeric(12,2) NOT NULL DEFAULT 0`, en UYU,
+  con check no negativo que también excluye `NaN`. Las filas existentes y futuras
+  comienzan con tarifa cero. No se recalculan pedidos anteriores.
+- `admin_actualizar_configuracion_comercio(p_operacion_id, p_comercio_id, p_cambios)`
+  admite la clave `costo_envio` además de las anteriores. Exige un número JSON entre
+  0 y 9999999999.99, con hasta dos decimales; rechaza `null`, cadenas y negativos.
+  Conserva autorización owner/admin o super admin, bloqueo de fila, idempotencia por
+  operación y auditoría de los valores anteriores/nuevos (incluida la tarifa).
+  No habilita escritura directa ni edición desde la UI de Operación en esta etapa.
+- `pedidos.metodo_pago` admite `efectivo`, `tarjeta_pos` y `pago_en_local`.
+  **No se consultaron datos remotos.** Al aplicarse, la migración bloquea brevemente
+  `pedidos` y cuenta métodos incompatibles **antes** de sustituir el check.
+  Si existen, emite un `WARNING` con la cantidad y deja el check `NOT VALID`,
+  conservando esas filas sin cambios. Si no existen, valida el check.
+  `NOT VALID` sigue controlando inserciones y actualizaciones: actualizar una fila
+  histórica con un método incompatible puede fallar, como con el check de PIA-20.
+  No se reescriben retiros históricos que se hayan registrado como `efectivo`.
+
+**Nueva firma de checkout (12 parámetros, sin valores por defecto):**
+
+```sql
+public.registrar_pedido_desde_checkout(
+  p_comercio_id uuid,
+  p_modalidad_entrega text,
+  p_cliente_nombre text,
+  p_cliente_telefono text,
+  p_direccion_calle text,
+  p_direccion_numero text,
+  p_direccion_apartamento text,
+  p_direccion_referencias text,
+  p_metodo_pago text,
+  p_subtotal numeric,
+  p_items jsonb,
+  p_costo_envio numeric
+) returns table (pedido_id uuid, pago_id uuid)
+```
+
+| Modalidad | Método permitido | Costo de envío |
+| --- | --- | --- |
+| `delivery` | `efectivo` o `tarjeta_pos` | Importe finito no negativo, hasta dos decimales |
+| `retiro` | Solo `pago_en_local` | Exactamente `0` |
+
+Los parámetros de modalidad, pago, subtotal y envío no admiten `NULL`.
+El subtotal debe ser positivo y finito, con hasta dos decimales. Se guardan
+`subtotal = p_subtotal`, `costo_envio = p_costo_envio` y
+`total = p_subtotal + p_costo_envio`; el rango monetario y la igualdad también
+quedan sujetos a los checks y tipos existentes de `pedidos`.
+La tarifa recibida es una instantánea calculada por el servidor de confianza,
+no se fuerza su igualdad con la configuración vigente en esta RPC. La integración
+posterior debe obtenerla de la configuración para delivery y enviar cero para retiro.
+Se mantienen el número automático del pedido, los estados iniciales pendientes,
+`pago_id = NULL`, el registro atómico de ítems/opciones y el trigger de disponibilidad.
+
+**Impacto de firma y permisos:** PostgreSQL no permite cambiar los argumentos con
+`CREATE OR REPLACE`; agregar una función sin retirar la anterior dejaría una
+sobrecarga que eludiría las nuevas validaciones. Se elimina explícitamente la firma
+de 11 argumentos con `DROP FUNCTION ... RESTRICT`, sin `CASCADE`, dentro de la misma
+transacción. La cadena versionada no registra funciones, vistas ni triggers que la
+referencien. Si el entorno tiene dependencias SQL adicionales registradas, `RESTRICT`
+aborta toda la migración sin eliminarlas: deben revisarse antes de reintentar.
+Las referencias externas o dentro de cuerpos SQL no registradas como dependencias
+requieren revisión manual.
+La función nueva declara dueño `postgres`, `SECURITY DEFINER` y `search_path` fijo;
+revoca acceso de `PUBLIC`, `anon` y `authenticated`, y restaura `EXECUTE` solo para
+`postgres` y `service_role`. La RPC administrativa conserva su firma y permiso solo
+para `authenticated` entre los roles de API, con autorización interna.
+
+El checkout actual todavía omite `p_costo_envio` y envía `efectivo` también para
+retiro: **aplicar esta migración aisladamente rompería el registro de pedidos**.
+No hay adaptador de compatibilidad. Coordinar la aplicación con la integración futura.
+«Llevar POS», las notificaciones y la UI de checkout/Operación quedan fuera de esta etapa.
+
+Pruebas enfocadas: `node --test tests/medios-pago-sql.test.mjs`. Verifican
+estáticamente el contrato, permisos, preservación de auditoría, ítems, disponibilidad
+y tratamiento de históricos; no ejecutan la migración ni sustituyen una prueba
+transaccional de integración en PostgreSQL antes de su aplicación autorizada.
+
 ### Nota sobre el historial de producción
 
 Al ejecutar `supabase db pull` en PIA-1, la CLI (v2.121.0) detectó que corría sin terminal
