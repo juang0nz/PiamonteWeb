@@ -120,7 +120,9 @@ La etapa 3 adapta el servidor a esta firma: envía `p_costo_envio` y usa
 para delivery y muestra el total confirmado por ese servidor. **No desplegar
 contra el esquema anterior**: coordinar migración, servidor y checkout.
 No hay adaptador de compatibilidad con la RPC anterior.
-«Llevar POS» y las notificaciones siguen pendientes para la etapa 5.
+La etapa 5 muestra «Llevar POS» en administración y notificaciones para
+delivery con `tarjeta_pos`, sin agregar cambios SQL. Las APIs leen los importes
+guardados en `pedidos` y el aviso sin revisar incorpora `metodo_pago`.
 La UI de Operación y checkout se implementa en las etapas 2 y 4, respectivamente.
 
 Pruebas enfocadas: `node --test tests/medios-pago-sql.test.mjs`. Verifican

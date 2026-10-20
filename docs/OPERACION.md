@@ -208,14 +208,56 @@ existentes; no aplican SQL ni reemplazan una prueba real posterior con la migrac
   ni ofrecer nuevamente el envío del mismo carrito.
 
 La migración continúa **sin aplicar**. Un error de tarifa o RPC no se resuelve
-automáticamente modificando Supabase. El panel administrativo de pedidos y las
-notificaciones quedan para la etapa 5.
+automáticamente modificando Supabase. La etapa 5 incorpora la visualización
+administrativa descrita a continuación.
 
 Prueba enfocada: `node --test tests/checkout-pagos.test.mjs`. Cubre persistencia,
 cambio de modalidad, radios y errores accesibles, payload sin importes,
 confirmación con tarifa actualizada, pausa/cierre y fallos de integración mediante
 dobles locales. La prueba real con Supabase y la revisión visual en dispositivos
 quedan pendientes; no se requieren conexiones remotas para esta suite.
+
+### Medios de pago y aviso POS en administración (PIA-3, etapa 5)
+
+Las tarjetas y el detalle de pedidos muestran etiquetas legibles:
+
+| Valor guardado | Etiqueta |
+| --- | --- |
+| `efectivo` | Efectivo |
+| `tarjeta_pos` | Tarjeta (POS) |
+| `pago_en_local` | Pago en el local |
+
+Un método histórico diferente se identifica como **Método histórico: valor**,
+sin cambiar el dato ni sustituirlo por uno de los métodos actuales.
+
+Para un pedido **delivery con `tarjeta_pos`**, aparece **Llevar POS** con fondo
+rojo, texto blanco y tamaño destacado en tres lugares: tarjeta, detalle y aviso
+visual de pedido nuevo. No aparece para efectivo, pago en el local ni retiro,
+incluso si un retiro histórico tuviera `tarjeta_pos`.
+
+El detalle muestra **Subtotal / Envío / Total** con dos decimales y moneda UYU,
+tomados del pedido guardado, no de la tarifa actual del comercio. La API
+administrativa consulta `subtotal`, `costo_envio`, `total`, `metodo_pago` y
+`modalidad`; conserva la respuesta camelCase (`costoEnvio`, `metodoPago`) y los
+filtros y permisos existentes para administradores y empleados.
+
+La API de pedidos sin revisar agrega `metodoPago` al aviso. Se reutilizan el
+canal Realtime, el respaldo periódico y la sincronización existente: no hay
+otro canal ni otra alarma. Se conservan el contador **Sin revisar**, la marca
+**Visto** y el sonido único cuando aparece un pedido nuevo (sin sonar por la
+primera carga o por resincronizaciones del mismo pedido). Marcar visto no
+modifica el estado comercial ni elimina el aviso POS de tarjeta o detalle.
+
+Esta etapa no cambia checkout, registro, transiciones de estados ni mensajes de
+WhatsApp. No aplica SQL ni modifica vínculos. La migración de PIA-3 continúa
+pendiente de revisión y aplicación autorizada; las columnas monetarias leídas
+de `pedidos` ya existen en el esquema base.
+
+Pruebas enfocadas:
+`node --test tests/admin-pagos.test.mjs tests/whatsapp-pedidos.test.mjs`.
+Cubren APIs y roles, etiquetas, aviso POS en las tres superficies, desglose,
+sonido/Realtime y marca visto mediante dobles locales. La integración real de
+Realtime con Supabase y la revisión visual en dispositivos siguen pendientes.
 
 ### Acceso de empleados por correo
 

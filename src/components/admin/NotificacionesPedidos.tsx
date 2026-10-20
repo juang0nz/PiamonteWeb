@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useNotificacionesPedidos } from "@/lib/admin/notificacionesPedidos";
 import { probarSonido } from "@/lib/admin/sonidoAlerta";
+import { etiquetaMetodoPago, requierePos } from "@/lib/admin/pagos";
 
 function horaDesdeIso(iso: string): string {
   return new Intl.DateTimeFormat("es-UY", {
@@ -99,6 +100,12 @@ export function NotificacionesPedidos({ comercioId }: { comercioId: string }) {
                   {etiquetaModalidad(notificacion.modalidad)} ·{" "}
                   {horaDesdeIso(notificacion.creadoEn)}
                 </p>
+                <p className="text-sm text-negro/70">{etiquetaMetodoPago(notificacion.metodoPago)}</p>
+                {requierePos(notificacion.modalidad, notificacion.metodoPago) && (
+                  <p className="mt-2 rounded-xl border-2 border-rojo bg-rojo px-4 py-2 text-lg font-bold uppercase tracking-wide text-white">
+                    Llevar POS
+                  </p>
+                )}
               </div>
               <button
                 type="button"
