@@ -114,9 +114,11 @@ revoca acceso de `PUBLIC`, `anon` y `authenticated`, y restaura `EXECUTE` solo p
 `postgres` y `service_role`. La RPC administrativa conserva su firma y permiso solo
 para `authenticated` entre los roles de API, con autorización interna.
 
-El checkout actual todavía omite `p_costo_envio` y envía `efectivo` también para
-retiro: **aplicar esta migración aisladamente rompería el registro de pedidos**.
-No hay adaptador de compatibilidad. Coordinar la aplicación con la integración futura.
+La etapa 3 adapta el servidor a esta firma: envía `p_costo_envio` y usa
+`pago_en_local` para retiro. El checkout visual todavía no envía la elección de
+pago requerida para delivery (etapa 4). **No aplicar ni desplegar aisladamente
+como una integración completa**: coordinar migración, servidor y checkout.
+No hay adaptador de compatibilidad con la RPC anterior.
 «Llevar POS», las notificaciones y la UI de checkout/Operación quedan fuera de esta etapa.
 
 Pruebas enfocadas: `node --test tests/medios-pago-sql.test.mjs`. Verifican

@@ -1,10 +1,6 @@
 import type { DatosCheckout } from "@/lib/checkout/tipos";
 
-// El pago se realiza únicamente en el local. La base de datos conserva la columna
-// metodo_pago (contrato de la RPC registrar_pedido_desde_checkout), por lo que se
-// envía siempre este valor fijo. Ver docs/BASE-DE-DATOS.md.
-export type MetodoPagoPedido = "efectivo";
-export const METODO_PAGO_PEDIDO: MetodoPagoPedido = "efectivo";
+export type MetodoPagoPedido = "efectivo" | "tarjeta_pos" | "pago_en_local";
 
 export type OpcionPedidoInput = {
   opcionId: string;
@@ -21,6 +17,8 @@ export type ItemPedidoInput = {
 export type PedidoCheckoutInput = {
   comercioSlug: string;
   checkout: DatosCheckout;
+  // Obligatorio para delivery; en retiro la ausencia se resuelve como pago_en_local.
+  metodoPago?: MetodoPagoPedido;
   programarParaApertura?: boolean;
   items: ItemPedidoInput[];
 };
@@ -48,6 +46,8 @@ export type ItemPedidoCalculado = {
 export type PedidoCalculado = {
   comercioId: string;
   subtotal: number;
+  costoEnvio: number;
+  total: number;
   items: ItemPedidoCalculado[];
 };
 
@@ -56,4 +56,6 @@ export type ResultadoRegistroPedido = {
   /** Número correlativo que ve el local en el panel; null si no pudo obtenerse. */
   numeroPedido: number | null;
   subtotal: number;
+  costoEnvio: number;
+  total: number;
 };

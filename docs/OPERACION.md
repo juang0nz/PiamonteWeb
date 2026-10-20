@@ -143,6 +143,43 @@ eventos del panel con dobles de hooks/fetch, sin conexiones remotas.
 
 ## Desarrollo y verificación
 
+### Registro de pedidos y pagos en servidor (PIA-3, etapa 3)
+
+`POST /api/pedidos/registrar` admite `metodoPago` en la raíz del JSON, junto con
+`comercioSlug`, `checkout` e `items`:
+
+- Delivery exige explícitamente `efectivo` o `tarjeta_pos`. Si falta el método,
+  es inválido o se envía `pago_en_local`, responde 400 sin registrar el pedido.
+- Retiro usa exclusivamente `pago_en_local`. Puede omitirse el campo porque no
+  hay otra elección; cualquier valor explícito diferente se rechaza.
+- El servidor lee pausa y tarifa de `comercio_configuracion` con el cliente
+  existente, filtrando por el comercio activo resuelto. Delivery sin fila o
+  con tarifa inválida se rechaza; no se reemplaza silenciosamente por cero.
+  Retiro siempre usa envío cero, independientemente de la tarifa de delivery.
+- Productos, variantes y opciones se recalculan desde el catálogo. Los importes
+  del navegador no se usan. Las sumas y multiplicaciones monetarias se hacen en
+  centésimos enteros y se validan antes de enviar a la RPC.
+- Se mantiene la RPC atómica con el cliente privado, ahora enviando
+  `p_metodo_pago` y `p_costo_envio` según el contrato de etapa 1. No se reintenta
+  con la firma anterior si falta la migración.
+- La respuesta 201 conserva `pedidoId`, `numeroPedido` y `subtotal`, y agrega
+  `costoEnvio` y `total` como números en UYU. `total = subtotal + costoEnvio`
+  calculado en centésimos, sin modificar pedidos anteriores.
+
+Se conservan controles de horario, pausa, comercio activo, categorías,
+productos, variantes, opciones y conflicto atómico de disponibilidad.
+El registro continúa siendo para invitados, sin añadir sesión de cliente.
+
+**Integración pendiente:** el selector visual no se implementó y el checkout
+actual todavía no envía `metodoPago`; sus pedidos delivery serán rechazados
+hasta la etapa 4. La migración sigue sin aplicar: las consultas/RPC nuevas
+pueden fallar hasta su aplicación autorizada. No desplegar esta integración
+como un checkout completo antes de coordinar ambas partes.
+
+Pruebas enfocadas: `node --test tests/registro-pagos.test.mjs tests/operacion.test.mjs tests/checkout-admin.test.mjs`.
+Usan dobles locales de Supabase y verifican pagos, importes, rechazos y controles
+existentes; no aplican SQL ni reemplazan una prueba real posterior con la migración.
+
 ### Acceso de empleados por correo
 
 En **Administración → Empleados**, cada empleado tiene una sección **Acceso**:

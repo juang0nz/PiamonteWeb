@@ -97,10 +97,10 @@ function cargarRegistrar(supabase) {
   return cargar("src/lib/pedidos/registrar.ts", {
     "@/lib/catalogo/configurador": { limitesGrupo() { throw new Error("No hay grupos"); } },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto: true }) },
+    "@/lib/comercio/tiempos": tiempos,
     "@/lib/supabase/server": { createClient: async () => supabase },
     "@/lib/supabase/private": { createPrivateClient: () => supabase },
     "@/lib/checkout/tipos": checkout, "@/lib/checkout/celular": celular,
-    "./tipos": { METODO_PAGO_PEDIDO: "efectivo" },
   });
 }
 

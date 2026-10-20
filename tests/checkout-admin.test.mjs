@@ -1498,7 +1498,7 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   const operacionesPrivadas = [];
   const tablas = {
     comercios: [{ id: "comercio", slug: "piamonte", activo: true }],
-    comercio_configuracion: [{ pedidos_pausados: false, mensaje_pausa: "" }],
+    comercio_configuracion: [{ pedidos_pausados: false, mensaje_pausa: "", costo_envio: 0 }],
     categorias: [{ id: "categoria", comercio_id: "comercio", activa: true }],
     productos: [{ id: "producto", comercio_id: "comercio", categoria_id: "categoria", nombre: "Producto", precio_base: 100, disponible: true }],
     grupos_opciones: [], reglas_opciones_variante: [],
@@ -1538,10 +1538,10 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   const registrar = cargar("src/lib/pedidos/registrar.ts", {
     "@/lib/catalogo/configurador": { limitesGrupo() { throw new Error("No hay grupos"); } },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto: true }) },
+    "@/lib/comercio/tiempos": cargar("src/lib/comercio/tiempos.ts"),
     "@/lib/supabase/server": { createClient: async () => supabase },
     "@/lib/supabase/private": { createPrivateClient: () => privado },
     "@/lib/checkout/tipos": checkout, "@/lib/checkout/celular": celular,
-    "./tipos": { METODO_PAGO_PEDIDO: "efectivo" },
   });
   const input = {
     comercioSlug: "piamonte", cliente_user_id: "ignorado",
@@ -1553,7 +1553,11 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   assert.equal(parametros.p_cliente_telefono, "+59899806731");
   assert.equal(parametros.p_cliente_user_id, undefined);
   assert.equal(parametros.p_subtotal, 200);
-  assert.equal(parametros.p_metodo_pago, "efectivo");
+  assert.equal(parametros.p_metodo_pago, "pago_en_local");
+  assert.equal(parametros.p_costo_envio, 0);
+  assert.equal(resultado.subtotal, 200);
+  assert.equal(resultado.costoEnvio, 0);
+  assert.equal(resultado.total, 200);
   assert.equal(parametros.p_direccion_calle, null);
   assert.equal(resultado.numeroPedido, 42);
   assert.equal(resultado.pedidoId, "pedido-prueba");
@@ -1567,7 +1571,10 @@ test("Endpoint público registra sin consultar sesión", async () => {
     "next/server": { NextResponse },
     "@/lib/pedidos/registrar": {
       PedidoError: class extends Error {},
-      validarYRegistrarPedido: async input => { recibido = input; return { numeroPedido: 42 }; },
+      validarYRegistrarPedido: async input => {
+        recibido = input;
+        return { numeroPedido: 42, subtotal: 200, costoEnvio: 25.5, total: 225.5 };
+      },
     },
   });
   const resultado = await ruta.POST({
@@ -1576,6 +1583,9 @@ test("Endpoint público registra sin consultar sesión", async () => {
   });
   assert.equal(resultado.status, 201);
   assert.equal(resultado.body.numeroPedido, 42);
+  assert.equal(resultado.body.subtotal, 200);
+  assert.equal(resultado.body.costoEnvio, 25.5);
+  assert.equal(resultado.body.total, 225.5);
   assert.equal(recibido.comercioSlug, "piamonte");
 });
 test("Las cuentas de clientes fueron retiradas y el checkout invitado no depende de ellas", () => {
