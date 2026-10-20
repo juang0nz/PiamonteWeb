@@ -4,13 +4,11 @@ import type {
   DatosCheckout,
   ErroresCheckout,
 } from "@/lib/checkout/tipos";
-import { MENSAJE_PAGO } from "@/lib/comercio";
 import { rangoPorModalidad, type TiemposVigentes } from "@/lib/comercio/tiempos";
 import { CampoTexto } from "./CampoTexto";
 import { SelectorEntrega } from "./SelectorEntrega";
 
 // Formulario de datos del cliente: tipo de entrega, contacto y dirección (solo delivery).
-// El pago no se elige: se informa que se realiza en el local.
 export function FormularioCheckout({
   id,
   datos,
@@ -55,9 +53,42 @@ export function FormularioCheckout({
       </Seccion>
 
       <Seccion titulo="¿Cómo lo pagás?">
-        <p className="rounded-2xl border-2 border-negro/10 bg-white p-4 text-sm text-negro/75">
-          {MENSAJE_PAGO}
-        </p>
+        {datos.tipoEntrega === "delivery" ? (
+          <fieldset aria-describedby={errores.metodoPago ? "error-metodo-pago" : undefined}>
+            <legend className="sr-only">Medio de pago para delivery</legend>
+            <div
+              role="radiogroup"
+              aria-label="Medio de pago para delivery"
+              aria-invalid={errores.metodoPago ? true : undefined}
+              aria-describedby={errores.metodoPago ? "error-metodo-pago" : undefined}
+              tabIndex={-1}
+              className="grid gap-3 sm:grid-cols-2"
+            >
+              {(["efectivo", "tarjeta_pos"] as const).map((metodo) => (
+                <label key={metodo} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 bg-white p-4 text-sm font-semibold ${
+                  datos.metodoPago === metodo ? "border-rojo" : "border-negro/10"
+                }`}>
+                  <input
+                    type="radio"
+                    name="metodoPago"
+                    value={metodo}
+                    checked={datos.metodoPago === metodo}
+                    onChange={() => onCambio({ metodoPago: metodo })}
+                    className="accent-rojo"
+                  />
+                  {metodo === "efectivo" ? "Efectivo" : "Tarjeta (POS)"}
+                </label>
+              ))}
+            </div>
+            {errores.metodoPago && (
+              <p id="error-metodo-pago" role="alert" className="mt-2 text-sm text-rojo">{errores.metodoPago}</p>
+            )}
+          </fieldset>
+        ) : (
+          <p className="rounded-2xl border-2 border-negro/10 bg-white p-4 text-sm text-negro/75">
+            {datos.tipoEntrega === "retiro" ? "Pagás en el local" : "Elegí cómo recibir tu pedido para ver los medios de pago."}
+          </p>
+        )}
       </Seccion>
 
       <Seccion titulo="Tus datos">

@@ -5,6 +5,8 @@ import { EVENTO_PEDIDOS_NUEVOS } from "@/lib/admin/notificacionesPedidos";
 import { normalizarCelularUruguayo } from "@/lib/checkout/celular";
 import { mensajePedidoAceptadoWhatsApp } from "@/lib/comercio";
 import { formatearRango } from "@/lib/comercio/tiempos";
+import { etiquetaMetodoPago, requierePos } from "@/lib/admin/pagos";
+import { formatearImporteUYU } from "@/lib/catalogo/formato";
 
 type EstadoPedido =
   | "pendiente"
@@ -36,6 +38,8 @@ type PedidoAdmin = {
   };
   estado: string;
   metodoPago: string;
+  subtotal: number;
+  costoEnvio: number;
   total: number;
   // Rango congelado al aceptar el pedido (PIA-2); null en pedidos previos o pendientes.
   tiempoEstimadoMin?: number | null;
@@ -76,14 +80,6 @@ function normalizarEstado(estado: string): EstadoPedido | null {
   if (valor === "entregado" || valor === "entregados") return "entregado";
   if (valor === "cancelado" || valor === "cancelados") return "cancelado";
   return null;
-}
-
-function formatearMoneda(valor: number): string {
-  return new Intl.NumberFormat("es-UY", {
-    style: "currency",
-    currency: "UYU",
-    maximumFractionDigits: 0,
-  }).format(valor);
 }
 
 function fechaHoraDesdeIso(iso: string): { fecha: string; hora: string } {
@@ -432,6 +428,11 @@ export function PanelPedidosAdmin({
                       </span>
                     </div>
 
+                    {requierePos(pedido.modalidad, pedido.metodoPago) && (
+                      <p className="mt-4 rounded-xl border-2 border-rojo bg-rojo px-4 py-3 text-xl font-bold uppercase tracking-wide text-white">
+                        Llevar POS
+                      </p>
+                    )}
                     <ul className="mt-4 space-y-2 text-sm text-negro/80">
                       {pedido.items.map((item, index) => (
                         <li key={`${pedido.id}-${index}`}>
@@ -458,7 +459,7 @@ export function PanelPedidosAdmin({
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-negro/10 pt-4">
                       <p className="text-sm text-negro/70">
                         Pago:{" "}
-                        <span className="font-semibold text-negro">{pedido.metodoPago}</span>
+                        <span className="font-semibold text-negro">{etiquetaMetodoPago(pedido.metodoPago)}</span>
                         {typeof pedido.tiempoEstimadoMin === "number" &&
                           typeof pedido.tiempoEstimadoMax === "number" && (
                             <span>
@@ -470,7 +471,7 @@ export function PanelPedidosAdmin({
                           )}
                       </p>
                       <p className="text-lg font-bold text-negro">
-                        {formatearMoneda(pedido.total)}
+                        {formatearImporteUYU(pedido.total)}
                       </p>
                     </div>
 
@@ -518,7 +519,7 @@ export function PanelPedidosAdmin({
           Detalle del pedido
         </h3>
         <p className="mt-1 text-xs uppercase tracking-wider text-rojo">
-          Solo administradores autorizados
+          Personal autorizado del comercio
         </p>
 
         {!pedidoSeleccionado ? (
@@ -527,6 +528,11 @@ export function PanelPedidosAdmin({
           </p>
         ) : (
           <div className="mt-4 space-y-3 text-sm text-negro/80">
+            {requierePos(pedidoSeleccionado.modalidad, pedidoSeleccionado.metodoPago) && (
+              <p className="rounded-xl border-2 border-rojo bg-rojo px-4 py-3 text-xl font-bold uppercase tracking-wide text-white">
+                Llevar POS
+              </p>
+            )}
             <p>
               <span className="font-semibold text-negro">Pedido:</span> #
               {pedidoSeleccionado.numero}
@@ -567,8 +573,13 @@ export function PanelPedidosAdmin({
             )}
             <p>
               <span className="font-semibold text-negro">Método de pago:</span>{" "}
-              {pedidoSeleccionado.metodoPago}
+              {etiquetaMetodoPago(pedidoSeleccionado.metodoPago)}
             </p>
+            <dl className="space-y-2 border-t border-negro/10 pt-3">
+              <div className="flex flex-wrap justify-between gap-2"><dt>Subtotal</dt><dd>{formatearImporteUYU(pedidoSeleccionado.subtotal)}</dd></div>
+              <div className="flex flex-wrap justify-between gap-2"><dt>Envío</dt><dd>{formatearImporteUYU(pedidoSeleccionado.costoEnvio)}</dd></div>
+              <div className="flex flex-wrap justify-between gap-2 font-bold text-negro"><dt>Total</dt><dd>{formatearImporteUYU(pedidoSeleccionado.total)}</dd></div>
+            </dl>
           </div>
         )}
       </aside>

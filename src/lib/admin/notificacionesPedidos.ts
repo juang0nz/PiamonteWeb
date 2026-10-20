@@ -8,6 +8,7 @@ export type NotificacionPedido = {
   id: string;
   numero: number;
   modalidad: string;
+  metodoPago: string;
   creadoEn: string;
 };
 

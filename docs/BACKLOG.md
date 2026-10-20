@@ -4,7 +4,8 @@
 
 Los tickets `PIA-1` a `PIA-19` fueron creados el 2026-10-17 con la numeración de esta tabla,
 que se conserva aquí solo como índice de lectura rápida. El estado vigente, las decisiones y
-los comentarios viven en Jira; este archivo no se actualiza por cada cambio de estado.
+los comentarios viven en Jira; este archivo registra hitos de cierre técnico, no cada
+cambio de estado. Actualizar este índice no modifica el ticket de Jira.
 
 El saneamiento inicial del repositorio (GitFlow, migraciones, pipeline DevSecOps) se hizo
 antes de existir Jira bajo la etiqueta `PIA-0` (once ramas `feature/PIA-0-*`, ya integradas
@@ -21,6 +22,7 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 | PIA-0 | Saneamiento del repositorio, GitFlow, migraciones y pipeline DevSecOps (ver `docs/PIPELINE.md`) | hecho, en `develop` |
 | PIA-20 | Limpiar la RPC de pedidos: retirar los objetos de Mercado Pago, contrato `metodo_pago` en `efectivo`/`tarjeta_pos` y trigger de disponibilidad en `pedido_items` (ver `docs/BASE-DE-DATOS.md`) | hecho (2026-10-17; pendiente de aplicar en producción en el próximo release) |
 | PIA-2 | Gestión de demanda (normal/alta), tiempos estimados configurables por nivel y modalidad, tiempo congelado en cada pedido, y pausa de pedidos desde el panel Operación (PIAM-02; ver `docs/OPERACION.md`) | hecho (2026-10-18; valores iniciales provisorios, configurables desde el panel; migración pendiente de aplicar en producción en el próximo release) |
+| PIA-3 | Medios de pago por modalidad, tarifa configurable de delivery, desglose de importes y aviso «Llevar POS» en administración y notificaciones (PIAM-05; ver [Operación](OPERACION.md#cierre-técnico-de-pia-3-2026-10-20)) | hecho en la rama `feature/PIA-3-medios-de-pago` (2026-10-20; etapas 1–5 implementadas, migración aplicada solo en `piamonte-dev` y pruebas funcionales confirmadas por el responsable; pendiente PR a `develop` y despliegue/migración en producción) |
 
 ## Prerequisito técnico
 
@@ -33,7 +35,7 @@ Estados: `hecho` · `pendiente` · `bloqueado (motivo)`.
 | Ticket | Título (origen) | Prioridad | Dependencias | Estado |
 | --- | --- | --- | --- | --- |
 | PIA-2 | Gestión de demanda (normal/alta), tiempos estimados configurables por nivel y modalidad, tiempo congelado en cada pedido, y pausa de pedidos desde el panel (PIAM-02) | alta | PIA-1 | hecho (2026-10-18; ver "Hecho") |
-| PIA-3 | Modalidades de entrega y medios de pago reales: delivery+efectivo, delivery+tarjeta POS («Llevar POS»), retiro+pago en local; tarifa única de delivery administrable y desglosada en el total (PIAM-05) | alta | PIA-2 (configuración operativa del comercio) | pendiente |
+| PIA-3 | Modalidades de entrega y medios de pago reales: delivery+efectivo, delivery+tarjeta POS («Llevar POS»), retiro+pago en local; tarifa única de delivery administrable y desglosada en el total (PIAM-05) | alta | PIA-2 (configuración operativa del comercio) | hecho en rama y probado en desarrollo (2026-10-20; ver "Hecho"; pendiente integración a `develop` y producción) |
 | PIA-4 | Descuento automático para pedidos web, porcentual, configurable y activable desde el panel; se calcula sobre productos, no sobre envío; se conserva en el pedido (PIAM-08) | alta | PIA-3 (cálculo de totales) | pendiente — definir porcentaje inicial |
 | PIA-5 | Zona de cobertura de delivery por perímetro: editor de polígono en el panel, geocodificación de la dirección, validación punto-en-polígono en el servidor (PostGIS), fallback para direcciones no localizables (PIAM-01) | alta | Perímetro definido por Fede; elección de proveedor de geocodificación y su costo | bloqueado (definición del cliente) |
 | PIA-6 | Normalización de nombres y estructura del catálogo mediante migración de datos revisada en PR, sin alterar precios ni relaciones (PIAM-07) | media | PIA-1 | pendiente |

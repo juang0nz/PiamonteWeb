@@ -65,6 +65,8 @@ function escenario({ telefono = "099 806 731", estado = "pendiente", fallo = fal
     "@/lib/checkout/celular": celular,
     "@/lib/comercio": comercio,
     "@/lib/comercio/tiempos": tiempos,
+    "@/lib/admin/pagos": cargar("src/lib/admin/pagos.ts"),
+    "@/lib/catalogo/formato": cargar("src/lib/catalogo/formato.ts"),
   }, {
     window: {
       confirm: () => confirmar,

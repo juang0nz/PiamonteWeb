@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { DATOS_INICIALES, type DatosCheckout } from "./tipos";
+import { DATOS_INICIALES, normalizarMetodoPago, type DatosCheckout } from "./tipos";
 
 // Datos del cliente en el checkout, guardados en sessionStorage para que no se pierdan
 // al volver al carrito o recargar la página dentro de la misma pestaña.
@@ -25,6 +25,10 @@ function asegurarCarga() {
       datos = {
         ...combinado,
         tipoEntrega: tipo === "delivery" || tipo === "retiro" ? tipo : null,
+        metodoPago: normalizarMetodoPago(
+          tipo === "delivery" || tipo === "retiro" ? tipo : null,
+          combinado.metodoPago,
+        ),
         programarParaApertura: Boolean(combinado.programarParaApertura),
       };
     }
@@ -49,6 +53,7 @@ function obtenerSnapshot() {
 export function actualizarDatosCheckout(cambios: Partial<DatosCheckout>) {
   asegurarCarga();
   datos = { ...datos, ...cambios };
+  datos.metodoPago = normalizarMetodoPago(datos.tipoEntrega, datos.metodoPago);
   try {
     window.sessionStorage.setItem(CLAVE_ALMACENAMIENTO, JSON.stringify(datos));
   } catch {

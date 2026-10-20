@@ -4,6 +4,7 @@ import { obtenerEstadoAccesoAdmin } from "@/lib/admin/auth";
 import {
   CLAVES_CONFIGURACION,
   CLAVES_RANGOS,
+  validarCostoEnvio,
   type ClaveConfiguracion,
   type ConfiguracionOperativa,
 } from "@/lib/comercio/tiempos";
@@ -13,7 +14,7 @@ const UUID_VALIDO =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const COLUMNAS =
-  "demanda, retiro_normal_min, retiro_normal_max, envio_normal_min, envio_normal_max, retiro_alta_min, retiro_alta_max, envio_alta_min, envio_alta_max, pedidos_pausados, mensaje_pausa, actualizado_en";
+  "demanda, retiro_normal_min, retiro_normal_max, envio_normal_min, envio_normal_max, retiro_alta_min, retiro_alta_max, envio_alta_min, envio_alta_max, pedidos_pausados, mensaje_pausa, costo_envio, actualizado_en";
 
 type FilaConfiguracion = ConfiguracionOperativa & { actualizado_en: string };
 
@@ -58,6 +59,9 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
+    if (error.code === "42703" || error.code === "PGRST204") {
+      return errorConfiguracion(error);
+    }
     console.error("Error al consultar la configuración operativa:", {
       code: error.code,
       message: error.message,
@@ -151,6 +155,10 @@ function normalizarCambios(
         return { error: "El mensaje de pausa debe tener entre 1 y 280 caracteres." };
       }
       valores.mensaje_pausa = texto;
+    } else if (clave === "costo_envio") {
+      const error = validarCostoEnvio(valor);
+      if (error) return { error };
+      if (typeof valor === "number") valores.costo_envio = valor;
     } else if ((CLAVES_RANGOS as readonly string[]).includes(clave)) {
       if (typeof valor !== "number" || !Number.isInteger(valor)) {
         return { error: "Los minutos deben ser números enteros." };
@@ -187,6 +195,12 @@ function errorConfiguracion(error: {
   }
   if (error.code === "P0002") {
     return NextResponse.json({ error: "El comercio no existe." }, { status: 404 });
+  }
+  if (error.code === "42703" || error.code === "PGRST204") {
+    return NextResponse.json(
+      { error: "La tarifa de delivery todavía no está disponible: falta aplicar la migración de PIA-3 en Supabase." },
+      { status: 503 },
+    );
   }
   if (error.code === "PGRST202") {
     return NextResponse.json(

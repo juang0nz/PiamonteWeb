@@ -19,7 +19,7 @@ manual y auditada que hace una persona con acceso al proyecto.
   en la organización del dueño. Cuando se otorgue, se recrea en esa organización y en la
   misma región que producción con el procedimiento de "Recrear el proyecto de desarrollo".
 
-## Estado de la cadena de migraciones (tras PIA-1, 2026-10-17)
+## Estado de la cadena de migraciones (actualizado al cierre de PIA-3, 2026-10-20)
 
 `supabase/migrations/` es reproducible desde cero:
 
@@ -27,18 +27,114 @@ manual y auditada que hace una persona con acceso al proyecto.
 | --- | --- |
 | `20261017134905_remote_schema.sql` | **Foto base**: esquema real de producción capturado con `supabase db pull` (esquema `public` completo: 18 tablas, 38 funciones, 26 políticas RLS, triggers, índices, grants, y la política de lectura sobre `storage.objects`). |
 | `20261017134906_storage_bucket_imagenes.sql` | Fila del bucket `imagenes-productos` en `storage.buckets` (dato, no esquema; `db pull` no la captura). Escrita a mano a partir de la configuración observada en producción. |
-| `20261017210509_limpiar_rpc_pedidos.sql` | **PIA-20.** Retira los objetos de Mercado Pago (`pagos`, `pagos_notificaciones`, `confirmar_pago_mercado_pago`, `reservar_preferencia_mercado_pago`); cambia el contrato de `metodo_pago` a `('efectivo', 'tarjeta_pos')` en la RPC `registrar_pedido_desde_checkout` (misma firma; `pago_id` del resultado queda siempre `null`) y en el check de `pedidos` (creado `NOT VALID` por si producción tiene filas históricas con `mercado_pago`); crea la función y el trigger `validar_disponibilidad_item_pedido` sobre `pedido_items` que el script histórico 04 nunca llegó a aplicar. Conserva `pedidos.estado_pago` y su check para PIA-3. La UI del POS (`tarjeta_pos`) es PIA-3; la aplicación sigue enviando `"efectivo"`. **Pendiente de aplicar en producción** en el próximo release: ver "Procedimiento para una migración nueva". |
+| `20261017210509_limpiar_rpc_pedidos.sql` | **PIA-20.** Retira los objetos de Mercado Pago (`pagos`, `pagos_notificaciones`, `confirmar_pago_mercado_pago`, `reservar_preferencia_mercado_pago`); cambia el contrato de `metodo_pago` a `('efectivo', 'tarjeta_pos')` en la RPC `registrar_pedido_desde_checkout` (misma firma; `pago_id` del resultado queda siempre `null`) y en el check de `pedidos` (creado `NOT VALID` por si producción tiene filas históricas con `mercado_pago`); crea la función y el trigger `validar_disponibilidad_item_pedido` sobre `pedido_items` que el script histórico 04 nunca llegó a aplicar. Conserva `pedidos.estado_pago` y su check para PIA-3. En esa etapa la aplicación solo enviaba `"efectivo"`; PIA-3 incorpora la selección POS y el pago en local. **Pendiente de aplicar en producción** en el próximo release: ver "Procedimiento para una migración nueva". |
 | `20261018123209_demanda_tiempos_pausa.sql` | **PIA-2.** Tabla `comercio_configuracion` (1:1 con `comercios`: `demanda` normal/alta, ocho rangos de minutos retiro/envío × normal/alta con checks 0–240 y máximo ≥ mínimo, `pedidos_pausados`, `mensaje_pausa`, `actualizado_en` con el trigger existente `clientes_actualizar_actualizado_en`), con lectura pública de la fila del comercio activo, sin escritura directa para la API, fila inicial por comercio y publicada en Realtime. Columnas `pedidos.tiempo_estimado_min/max` (rango congelado al aceptar; null en pedidos previos). RPC auditada `admin_actualizar_configuracion_comercio(p_operacion_id, p_comercio_id, p_cambios jsonb)` (solo `authenticated`; exige owner/admin o super admin; claves permitidas fijas). Redefine con la misma firma y permisos `auditoria_iniciar_operacion` (entidad nueva `comercio_configuracion`, también agregada al check de `auditoria_eventos`) y `admin_actualizar_estado_pedido_auditado` (al pasar a `en_preparacion` guarda el rango vigente según modalidad y demanda). **Pendiente de aplicar en producción** junto con la de PIA-20. |
+| `20261020145041_medios_pago_costo_envio.sql` | **PIA-3.** Tarifa `comercio_configuracion.costo_envio` con valor inicial 0 UYU, edición por RPC auditada, métodos `efectivo`/`tarjeta_pos`/`pago_en_local` y RPC de registro de 12 parámetros que guarda subtotal, envío y total. Conserva históricos y permisos mínimos. **Aplicada únicamente en `piamonte-dev`, según confirmación del responsable del 2026-10-20; pendiente en producción.** |
 
-Las cuatro están aplicadas en `piamonte-dev`. En producción la foto base figura como aplicada
+Las cinco están aplicadas en `piamonte-dev`; la aplicación de PIA-3 y sus pruebas
+funcionales fueron confirmadas por el responsable el 2026-10-20, sin una nueva
+consulta remota durante el cierre técnico. En producción la foto base figura como aplicada
 en `supabase_migrations.schema_migrations` (ver "Nota sobre el historial de producción");
 la del bucket no hace falta aplicarla porque el bucket ya existe con esa configuración, y
-`db push` contra producción la registrará sin efecto gracias al `on conflict`. Las de PIA-20 y
-PIA-2 sí tienen efecto en producción y se aplican con el release que las incluya.
+`db push` contra producción la registrará sin efecto gracias al `on conflict`. Las de PIA-20,
+PIA-2 y PIA-3 sí tienen efecto en producción y se aplican con el release que las incluya.
 
 Los doce scripts que antes estaban en `supabase/migrations/` se movieron a
 [`supabase/historial/`](../supabase/historial/README.md) como documentación. Los tres de
 [`supabase/pendientes/`](../supabase/pendientes/README.md) siguen allí con su conclusión.
+
+### PIA-3: contrato aplicado en desarrollo, pendiente en producción
+
+La migración [`20261020145041_medios_pago_costo_envio.sql`](../supabase/migrations/20261020145041_medios_pago_costo_envio.sql)
+está **aplicada únicamente en `piamonte-dev`**, según la confirmación del responsable
+del 2026-10-20. Se probaron correctamente efectivo, POS, retiro, «Llevar POS» y
+tarifa configurable. No se ejecutó SQL ni se modificó Supabase durante este cierre.
+Requiere la cadena hasta PIA-2; **sigue pendiente de aplicar en producción** mediante
+una acción manual autorizada y coordinada con el despliegue de las etapas 1–5.
+No volver a aplicar la migración en desarrollo: no es idempotente.
+
+- `comercio_configuracion.costo_envio`: `numeric(12,2) NOT NULL DEFAULT 0`, en UYU,
+  con check no negativo que también excluye `NaN`. Las filas existentes y futuras
+  comienzan con tarifa cero. No se recalculan pedidos anteriores.
+- `admin_actualizar_configuracion_comercio(p_operacion_id, p_comercio_id, p_cambios)`
+  admite la clave `costo_envio` además de las anteriores. Exige un número JSON entre
+  0 y 9999999999.99, con hasta dos decimales; rechaza `null`, cadenas y negativos.
+  Conserva autorización owner/admin o super admin, bloqueo de fila, idempotencia por
+  operación y auditoría de los valores anteriores/nuevos (incluida la tarifa).
+  No habilita escritura directa; la sección Delivery de Operación usa esta RPC.
+- `pedidos.metodo_pago` admite `efectivo`, `tarjeta_pos` y `pago_en_local`.
+  **No se consultaron datos remotos.** Al aplicarse, la migración bloquea brevemente
+  `pedidos` y cuenta métodos incompatibles **antes** de sustituir el check.
+  Si existen, emite un `WARNING` con la cantidad y deja el check `NOT VALID`,
+  conservando esas filas sin cambios. Si no existen, valida el check.
+  `NOT VALID` sigue controlando inserciones y actualizaciones: actualizar una fila
+  histórica con un método incompatible puede fallar, como con el check de PIA-20.
+  No se reescriben retiros históricos que se hayan registrado como `efectivo`.
+
+**Nueva firma de checkout (12 parámetros, sin valores por defecto):**
+
+```sql
+public.registrar_pedido_desde_checkout(
+  p_comercio_id uuid,
+  p_modalidad_entrega text,
+  p_cliente_nombre text,
+  p_cliente_telefono text,
+  p_direccion_calle text,
+  p_direccion_numero text,
+  p_direccion_apartamento text,
+  p_direccion_referencias text,
+  p_metodo_pago text,
+  p_subtotal numeric,
+  p_items jsonb,
+  p_costo_envio numeric
+) returns table (pedido_id uuid, pago_id uuid)
+```
+
+| Modalidad | Método permitido | Costo de envío |
+| --- | --- | --- |
+| `delivery` | `efectivo` o `tarjeta_pos` | Importe finito no negativo, hasta dos decimales |
+| `retiro` | Solo `pago_en_local` | Exactamente `0` |
+
+Los parámetros de modalidad, pago, subtotal y envío no admiten `NULL`.
+El subtotal debe ser positivo y finito, con hasta dos decimales. Se guardan
+`subtotal = p_subtotal`, `costo_envio = p_costo_envio` y
+`total = p_subtotal + p_costo_envio`; el rango monetario y la igualdad también
+quedan sujetos a los checks y tipos existentes de `pedidos`.
+La tarifa recibida es una instantánea calculada por el servidor de confianza,
+no se fuerza su igualdad con la configuración vigente en esta RPC. El servidor
+la obtiene de la configuración para delivery y envía cero para retiro.
+Se mantienen el número automático del pedido, los estados iniciales pendientes,
+`pago_id = NULL`, el registro atómico de ítems/opciones y el trigger de disponibilidad.
+
+**Impacto de firma y permisos:** PostgreSQL no permite cambiar los argumentos con
+`CREATE OR REPLACE`; agregar una función sin retirar la anterior dejaría una
+sobrecarga que eludiría las nuevas validaciones. Se elimina explícitamente la firma
+de 11 argumentos con `DROP FUNCTION ... RESTRICT`, sin `CASCADE`, dentro de la misma
+transacción. La cadena versionada no registra funciones, vistas ni triggers que la
+referencien. Si el entorno tiene dependencias SQL adicionales registradas, `RESTRICT`
+aborta toda la migración sin eliminarlas: deben revisarse antes de reintentar.
+Las referencias externas o dentro de cuerpos SQL no registradas como dependencias
+requieren revisión manual.
+La función nueva declara dueño `postgres`, `SECURITY DEFINER` y `search_path` fijo;
+revoca acceso de `PUBLIC`, `anon` y `authenticated`, y restaura `EXECUTE` solo para
+`postgres` y `service_role`. La RPC administrativa conserva su firma y permiso solo
+para `authenticated` entre los roles de API, con autorización interna.
+
+La etapa 3 adapta el servidor a esta firma: envía `p_costo_envio` y usa
+`pago_en_local` para retiro. La etapa 4 agrega la elección de pago requerida
+para delivery y muestra el total confirmado por ese servidor. **No desplegar
+contra el esquema anterior**: coordinar migración, servidor y checkout.
+No hay adaptador de compatibilidad con la RPC anterior.
+La etapa 5 muestra «Llevar POS» en administración y notificaciones para
+delivery con `tarjeta_pos`, sin agregar cambios SQL. Las APIs leen los importes
+guardados en `pedidos` y el aviso sin revisar incorpora `metodo_pago`.
+La UI de Operación y checkout se implementa en las etapas 2 y 4, respectivamente.
+
+Pruebas enfocadas: `node --test tests/medios-pago-sql.test.mjs`. Verifican
+estáticamente el contrato, permisos, preservación de auditoría, ítems, disponibilidad
+y tratamiento de históricos; no ejecutan la migración. Las pruebas funcionales
+en desarrollo fueron confirmadas por el responsable; no equivalen a verificar
+históricos, dependencias, permisos y auditoría efectivos en producción.
 
 ### Nota sobre el historial de producción
 
@@ -137,10 +233,16 @@ npx supabase migration list
 #    Nunca desde la CI. Después, volver a enlazar dev.
 ```
 
-Pendientes de aplicar en producción (próximo release): `20261017210509_limpiar_rpc_pedidos.sql`
-(PIA-20) y `20261018123209_demanda_tiempos_pausa.sql` (PIA-2; no borra datos: crea la fila de
+Pendientes de aplicar en producción según el estado documentado (confirmar antes
+del release): `20261017210509_limpiar_rpc_pedidos.sql` (PIA-20),
+`20261018123209_demanda_tiempos_pausa.sql` (PIA-2; no borra datos: crea la fila de
 configuración del comercio con los valores iniciales y el administrador los ajusta desde
-Operación). Antes del `db push` contra producción, comprobar en el SQL Editor cuántas filas
+Operación) y `20261020145041_medios_pago_costo_envio.sql` (PIA-3; aplicada solo
+en desarrollo). Coordinar la firma nueva de 12 parámetros con el servidor y
+checkout: no hay compatibilidad con la firma anterior. Revisar dependencias antes
+del `DROP FUNCTION ... RESTRICT`, contemplar el bloqueo exclusivo de `pedidos` y
+el check `NOT VALID` si hay métodos históricos incompatibles. Antes del `db push`
+contra producción, comprobar en el SQL Editor cuántas filas
 de Mercado Pago se van a perder; son de pruebas internas (el checkout de Mercado Pago nunca
 se habilitó):
 

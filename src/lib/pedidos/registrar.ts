@@ -1,17 +1,18 @@
 import { limitesGrupo } from "@/lib/catalogo/configurador";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
+import { validarCostoEnvio } from "@/lib/comercio/tiempos";
 import { validarDatosCheckout } from "@/lib/checkout/tipos";
 import { createClient } from "@/lib/supabase/server";
 import { createPrivateClient } from "@/lib/supabase/private";
 import { normalizarCelularUruguayo } from "@/lib/checkout/celular";
 import type { PostgrestError } from "@supabase/supabase-js";
-import { METODO_PAGO_PEDIDO } from "./tipos";
 import type {
   ItemPedidoCalculado,
   ItemPedidoInput,
   PedidoCalculado,
   PedidoCheckoutInput,
   ResultadoRegistroPedido,
+  MetodoPagoPedido,
 } from "./tipos";
 
 type ComercioFila = { id: string; slug: string; activo: boolean };
@@ -63,7 +64,11 @@ type ReglaFila = {
 
 type RpcResultado = { pedido_id: string; pago_id?: string | null };
 
-type ConfiguracionPausaFila = { pedidos_pausados: boolean; mensaje_pausa: string };
+type ConfiguracionPedidoFila = {
+  pedidos_pausados: boolean;
+  mensaje_pausa: string;
+  costo_envio: number | string;
+};
 
 type DiagnosticoSupabase = {
   etapa: string;
@@ -129,6 +134,27 @@ function normalizarTexto(valor: string, maxLen: number): string {
   return valor.trim().replace(/\s+/g, " ").slice(0, maxLen);
 }
 
+function importeEnCentimos(valor: number | string | null, concepto: string): number {
+  const importe = valor === null || valor === "" ? NaN : Number(valor);
+  if (validarCostoEnvio(importe)) {
+    fallar(`El importe de ${concepto} no es válido.`, 409, "CONFLICTO_DATOS");
+  }
+  return Math.round(importe * 100);
+}
+
+function resolverMetodoPago(input: PedidoCheckoutInput): MetodoPagoPedido {
+  if (input.checkout.tipoEntrega === "retiro") {
+    if (input.metodoPago !== undefined && input.metodoPago !== "pago_en_local") {
+      fallar("Para retiro el método de pago debe ser pago_en_local.");
+    }
+    return "pago_en_local";
+  }
+  if (input.metodoPago !== "efectivo" && input.metodoPago !== "tarjeta_pos") {
+    fallar("Para delivery elegí efectivo o tarjeta POS.");
+  }
+  return input.metodoPago;
+}
+
 function validarInputBasico(input: PedidoCheckoutInput) {
   if (!input || typeof input !== "object") {
     fallar("La solicitud del pedido no es válida.");
@@ -138,6 +164,9 @@ function validarInputBasico(input: PedidoCheckoutInput) {
   }
   if (!input.checkout || typeof input.checkout !== "object") {
     fallar("Los datos del checkout no son válidos.");
+  }
+  if (input.checkout.tipoEntrega !== "delivery" && input.checkout.tipoEntrega !== "retiro") {
+    fallar("La modalidad de entrega debe ser delivery o retiro.");
   }
   if (!Array.isArray(input.items) || input.items.length === 0) {
     fallar("No podés confirmar un pedido sin productos.");
@@ -264,11 +293,13 @@ function validarYCalcularItem(params: {
     }
   }
 
-  const precioUnitario = opcionesCalculadas.reduce(
-    (acum, opcion) => acum + opcion.precioAdicional,
-    precioBase,
+  // Se suman centésimos enteros para no enviar fracciones espurias a numeric(12,2).
+  const precioUnitarioCentimos = opcionesCalculadas.reduce(
+    (acum, opcion) => acum + importeEnCentimos(opcion.precioAdicional, "la opción"),
+    importeEnCentimos(precioBase, "el producto"),
   );
-  const subtotal = precioUnitario * item.cantidad;
+  const precioUnitario = precioUnitarioCentimos / 100;
+  const subtotal = precioUnitarioCentimos * item.cantidad / 100;
 
   return {
     productoId: producto.id,
@@ -289,6 +320,7 @@ export async function validarYRegistrarPedido(
   let etapa = "inicio";
   console.info("[pedidos] etapa inicio");
   validarInputBasico(input);
+  const metodoPago = resolverMetodoPago(input);
   const celular = normalizarCelularUruguayo(input.checkout.telefono);
   if (!celular) fallar("Ingresá un celular uruguayo válido.");
   const estadoApertura = obtenerEstadoApertura();
@@ -320,16 +352,15 @@ export async function validarYRegistrarPedido(
     fallar("El comercio no existe o no está activo.", 404);
   }
 
-  // Pausa de pedidos (PIA-2): la UI informa, pero la barrera es esta. Sin fila de
-  // configuración el comercio no está pausado.
+  // Pausa y tarifa se leen en la misma consulta con los permisos públicos existentes.
   etapa = "verificar-pausa";
   console.info("[pedidos] etapa verificar-pausa");
   const { data: configuracion, error: configuracionError } = await supabase
     .from("comercio_configuracion")
-    .select("pedidos_pausados, mensaje_pausa")
+    .select("pedidos_pausados, mensaje_pausa, costo_envio")
     .eq("comercio_id", comercio.id)
     .maybeSingle();
-  asegurarExito<ConfiguracionPausaFila | null>(etapa, "comercio_configuracion", {
+  asegurarExito<ConfiguracionPedidoFila | null>(etapa, "comercio_configuracion", {
     data: configuracion,
     error: configuracionError,
   });
@@ -339,6 +370,14 @@ export async function validarYRegistrarPedido(
       409,
       "PEDIDOS_PAUSADOS",
     );
+  }
+
+  let costoEnvioCentimos = 0;
+  if (input.checkout.tipoEntrega === "delivery") {
+    if (!configuracion) {
+      fallar("El comercio no tiene configurada la tarifa de delivery.", 409, "CONFLICTO_DATOS");
+    }
+    costoEnvioCentimos = importeEnCentimos(configuracion.costo_envio, "la tarifa de delivery");
   }
 
   const productoIds = [...new Set(input.items.map((i) => i.productoId))];
@@ -500,11 +539,22 @@ export async function validarYRegistrarPedido(
       opcionesPorId,
     }),
   );
-  const subtotal = itemsCalculados.reduce((acum, item) => acum + item.subtotal, 0);
+  const subtotalCentimos = itemsCalculados.reduce(
+    (acum, item) => acum + importeEnCentimos(item.subtotal, "los productos"),
+    0,
+  );
+  const subtotal = subtotalCentimos / 100;
+  const costoEnvio = costoEnvioCentimos / 100;
+  const total = (subtotalCentimos + costoEnvioCentimos) / 100;
+  if (subtotal <= 0 || validarCostoEnvio(subtotal) || validarCostoEnvio(total)) {
+    fallar("Los importes del pedido superan el rango permitido o el subtotal no es positivo.", 409, "CONFLICTO_DATOS");
+  }
 
   const pedidoCalculado: PedidoCalculado = {
     comercioId: comercio.id,
     subtotal,
+    costoEnvio,
+    total,
     items: itemsCalculados,
   };
   const referenciasProgramacion = normalizarTexto(input.checkout.referencias, 220);
@@ -539,8 +589,9 @@ export async function validarYRegistrarPedido(
           : null,
       p_direccion_apartamento: normalizarTexto(input.checkout.apartamento, 20) || null,
       p_direccion_referencias: referenciasFinales,
-      p_metodo_pago: METODO_PAGO_PEDIDO,
+      p_metodo_pago: metodoPago,
       p_subtotal: subtotal,
+      p_costo_envio: pedidoCalculado.costoEnvio,
       p_items: pedidoCalculado.items.map((item) => ({
         producto_id: item.productoId,
         producto_nombre: item.productoNombre,
@@ -581,7 +632,7 @@ export async function validarYRegistrarPedido(
     }
     if (code === "PGRST202") {
       throw new PedidoError(
-        "Falta crear el RPC registrar_pedido_desde_checkout para registrar pedidos en una transacción atómica.",
+        "Falta aplicar la migración de PIA-3 para registrar pedidos con medios de pago y costo de envío.",
         501,
         "REQUIERE_RPC",
         {
@@ -641,5 +692,7 @@ export async function validarYRegistrarPedido(
     numeroPedido:
       typeof pedidoCreado?.numero === "number" ? pedidoCreado.numero : null,
     subtotal,
+    costoEnvio,
+    total,
   };
 }

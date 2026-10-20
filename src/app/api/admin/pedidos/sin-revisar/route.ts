@@ -6,6 +6,7 @@ type PedidoSinRevisarRow = {
   id: string;
   numero: number;
   modalidad: string;
+  metodo_pago: string;
   creado_en: string;
 };
 
@@ -32,7 +33,7 @@ export async function GET() {
   const supabase = createPrivateClient();
   const { data, error } = await supabase
     .from("pedidos")
-    .select("id, numero, modalidad, creado_en")
+    .select("id, numero, modalidad, metodo_pago, creado_en")
     .eq("comercio_id", acceso.comercioId)
     .is("revisado_en", null)
     .order("creado_en", { ascending: false })
@@ -69,6 +70,7 @@ export async function GET() {
         id: pedido.id,
         numero: pedido.numero,
         modalidad: pedido.modalidad,
+        metodoPago: pedido.metodo_pago,
         creadoEn: pedido.creado_en,
       })),
     },

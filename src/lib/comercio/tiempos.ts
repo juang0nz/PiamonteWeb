@@ -1,4 +1,4 @@
-// Tiempos estimados y configuración operativa del comercio (PIA-2).
+// Tiempos estimados y configuración operativa del comercio.
 // Funciones puras, sin acceso a datos: las usan el servidor, el panel y los tests.
 
 export type NivelDemanda = "normal" | "alta";
@@ -16,6 +16,7 @@ export type ConfiguracionOperativa = {
   envio_alta_max: number;
   pedidos_pausados: boolean;
   mensaje_pausa: string;
+  costo_envio: number;
 };
 
 export type RangoMinutos = { min: number; max: number; texto: string };
@@ -42,6 +43,7 @@ export const CONFIGURACION_INICIAL: ConfiguracionOperativa = {
   envio_alta_max: 60,
   pedidos_pausados: false,
   mensaje_pausa: "Estamos con mucha demanda. En un rato volvemos a tomar pedidos.",
+  costo_envio: 0,
 };
 
 export const CLAVES_RANGOS = [
@@ -63,9 +65,25 @@ export const CLAVES_CONFIGURACION = [
   ...CLAVES_RANGOS,
   "pedidos_pausados",
   "mensaje_pausa",
+  "costo_envio",
 ] as const;
 
 export type ClaveConfiguracion = (typeof CLAVES_CONFIGURACION)[number];
+
+export const COSTO_ENVIO_MAXIMO = 9999999999.99;
+
+export function validarCostoEnvio(valor: unknown): string | null {
+  if (
+    typeof valor !== "number" ||
+    !Number.isFinite(valor) ||
+    valor < 0 ||
+    valor > COSTO_ENVIO_MAXIMO ||
+    Number(valor.toFixed(2)) !== valor
+  ) {
+    return "Ingresá un costo de envío entre 0 y 9999999999,99 UYU, con hasta dos decimales.";
+  }
+  return null;
+}
 
 // "15-30 min"; si el rango es un único valor, "30 min".
 export function formatearRango(min: number, max: number): string {

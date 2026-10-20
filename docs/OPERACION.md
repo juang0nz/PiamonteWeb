@@ -12,7 +12,8 @@ para clientes. Las antiguas rutas `/mi-cuenta` y `/auth/callback` se retiraron.
 No se modifican proveedores externos ni se eliminan usuarios de Supabase Auth.
 
 El checkout solicita nombre, celular y delivery o retiro; el pago se realiza en el
-local, al retirar o al recibir (efectivo o tarjeta), y no es una elección del cliente. Calle,
+local al retirar (`pago_en_local`) o al recibir: en delivery se exige elegir
+**Efectivo** o **Tarjeta (POS)**. Calle,
 número, apartamento y referencias corresponden a la entrega. No exige sesión,
 correo ni contraseña. El celular acepta formatos nacionales e internacionales de
 Uruguay y se guarda en E.164, por ejemplo `+59899806731`. Es un dato de contacto,
@@ -110,10 +111,191 @@ muestra "Estimado: 30-45 min" y el aviso de WhatsApp incluye ese rango
 (`mensajePedidoAceptadoWhatsApp` en `src/lib/comercio.ts`; PIA-8 reutiliza esta función).
 Los pedidos anteriores a esta versión quedan sin rango y el mensaje se envía sin él.
 
-Lo que no cambia en esta etapa: horarios, mensaje de pago y tarifa de envío. PIA-3 agregará
-`costo_envio` y el perímetro a la misma tabla con una migración nueva.
+### Delivery: tarifa configurable (PIA-3, etapa 2)
+
+La sección **Delivery** de Operación muestra la tarifa guardada en pesos uruguayos
+(`UYU`) y permite editarla a los mismos roles autorizados: `owner`, `admin` y
+super admin. El rol `empleado` sigue sin acceso.
+
+- **Guardar delivery** envía únicamente `costo_envio` a la API existente, con un
+  identificador de operación y el cliente de sesión. La RPC administrativa registra
+  el cambio en la auditoría; no hay escritura directa en la tabla.
+- Acepta cero e importes positivos hasta 9999999999,99 UYU, con máximo dos
+  decimales. El campo acepta coma o punto; la API exige un número JSON válido.
+  Vacíos, negativos, importes no finitos y decimales adicionales se rechazan.
+- Durante el guardado se bloquean los controles; se informa el éxito o el error.
+  Si falla el guardado, se conserva el borrador para corregirlo o reintentar.
+- La tarifa inicial definida en la migración de etapa 1 es 0 UYU; el retiro
+  no tiene costo de envío.
+
+**Estado al cierre:** la migración de etapa 1 está aplicada únicamente en
+`piamonte-dev`, según confirmación del responsable del 2026-10-20. En un entorno
+sin esa migración, la API puede devolver 503 indicando que falta
+PIA-3 y el panel muestra el error con la opción de reintentar. No simula una tarifa
+guardada ni modifica Supabase para resolverlo. La consulta de Operación incluye la
+nueva columna, por lo que su carga requiere esa migración.
+
+La etapa 2 no cambió el registro de pedidos ni el checkout; las etapas 3 y 4
+integran esos contratos. La etapa 5 agrega avisos POS; horarios y perímetros
+siguen fuera de PIA-3.
+La aplicación de la migración debe coordinarse con el despliegue por el cambio
+de firma de la RPC de pedidos.
+
+Verificación enfocada: `node --test tests/operacion.test.mjs`. Incluye validación
+monetaria, roles, filtro por comercio, contrato auditado, errores de migración y
+eventos del panel con dobles de hooks/fetch, sin conexiones remotas.
 
 ## Desarrollo y verificación
+
+### Registro de pedidos y pagos en servidor (PIA-3, etapa 3)
+
+`POST /api/pedidos/registrar` admite `metodoPago` en la raíz del JSON, junto con
+`comercioSlug`, `checkout` e `items`:
+
+- Delivery exige explícitamente `efectivo` o `tarjeta_pos`. Si falta el método,
+  es inválido o se envía `pago_en_local`, responde 400 sin registrar el pedido.
+- Retiro usa exclusivamente `pago_en_local`. Puede omitirse el campo porque no
+  hay otra elección; cualquier valor explícito diferente se rechaza.
+- El servidor lee pausa y tarifa de `comercio_configuracion` con el cliente
+  existente, filtrando por el comercio activo resuelto. Delivery sin fila o
+  con tarifa inválida se rechaza; no se reemplaza silenciosamente por cero.
+  Retiro siempre usa envío cero, independientemente de la tarifa de delivery.
+- Productos, variantes y opciones se recalculan desde el catálogo. Los importes
+  del navegador no se usan. Las sumas y multiplicaciones monetarias se hacen en
+  centésimos enteros y se validan antes de enviar a la RPC.
+- Se mantiene la RPC atómica con el cliente privado, ahora enviando
+  `p_metodo_pago` y `p_costo_envio` según el contrato de etapa 1. No se reintenta
+  con la firma anterior si falta la migración.
+- La respuesta 201 conserva `pedidoId`, `numeroPedido` y `subtotal`, y agrega
+  `costoEnvio` y `total` como números en UYU. `total = subtotal + costoEnvio`
+  calculado en centésimos, sin modificar pedidos anteriores.
+
+Se conservan controles de horario, pausa, comercio activo, categorías,
+productos, variantes, opciones y conflicto atómico de disponibilidad.
+El registro continúa siendo para invitados, sin añadir sesión de cliente.
+
+**Integración:** la etapa 4 incorpora el selector y envía `metodoPago`.
+Las pruebas funcionales en `piamonte-dev` fueron correctas según confirmación del
+responsable. En producción la migración sigue pendiente: no desplegar contra la
+firma anterior sin coordinar aplicación de SQL y código.
+
+Pruebas enfocadas: `node --test tests/registro-pagos.test.mjs tests/operacion.test.mjs tests/checkout-admin.test.mjs`.
+Usan dobles locales de Supabase y verifican pagos, importes, rechazos y controles
+existentes; no aplican SQL. La evidencia funcional en desarrollo se registra en el
+cierre técnico de PIA-3, sin atribuirla a la suite local.
+
+### Checkout y selección de pago (PIA-3, etapa 4)
+
+- Delivery muestra **Efectivo** y **Tarjeta (POS)** sin selección automática.
+  Al confirmar sin elegir se muestra un error y no se envía el pedido.
+- Retiro muestra **Pagás en el local**, sin selector, y envía `pago_en_local`.
+  Cambiar de delivery a retiro elimina la elección previa; volver a delivery
+  exige elegir otra vez.
+- El método se conserva en `sessionStorage` junto a los demás datos de checkout.
+  Las sesiones anteriores sin método son compatibles: no se inventa un método
+  para delivery. Los valores desconocidos o incompatibles se descartan.
+- La página obtiene la tarifa desde `comercio_configuracion` con el cliente
+  existente y la pasa al resumen. Si falla, muestra un error y bloquea delivery;
+  no presenta una tarifa gratuita ficticia. Retiro muestra envío cero.
+- El resumen incluye **Subtotal**, **Envío** y **Total estimado** en UYU, con dos
+  decimales. Antes de seleccionar modalidad, envío y total quedan por confirmar.
+  La tarifa es una instantánea al cargar la página: puede cambiar durante la compra.
+- El navegador envía el método en la raíz del JSON y los datos e identificadores
+  del pedido, **no envía subtotal, tarifa ni total para fijar el cobro**.
+  El servidor vuelve a consultar el catálogo y la tarifa vigente.
+- Después del registro se muestran los importes confirmados por el servidor,
+  aunque difieran de la estimación. Solo entonces se vacía el carrito. Si el
+  servidor rechaza, se conservan carrito y datos para corregir o reintentar.
+  Si el pedido ya tiene identificador pero su respuesta monetaria es inválida,
+  se informa que fue registrado sin mostrar un total estimado como confirmado
+  ni ofrecer nuevamente el envío del mismo carrito.
+
+La migración está **aplicada solo en desarrollo**. Un error de tarifa o RPC no se resuelve
+automáticamente modificando Supabase. La etapa 5 incorpora la visualización
+administrativa descrita a continuación.
+
+Prueba enfocada: `node --test tests/checkout-pagos.test.mjs`. Cubre persistencia,
+cambio de modalidad, radios y errores accesibles, payload sin importes,
+confirmación con tarifa actualizada, pausa/cierre y fallos de integración mediante
+dobles locales. Las pruebas funcionales con Supabase de desarrollo fueron
+confirmadas por el responsable; no se informó una matriz de dispositivos.
+No se requieren conexiones remotas para esta suite.
+
+### Medios de pago y aviso POS en administración (PIA-3, etapa 5)
+
+Las tarjetas y el detalle de pedidos muestran etiquetas legibles:
+
+| Valor guardado | Etiqueta |
+| --- | --- |
+| `efectivo` | Efectivo |
+| `tarjeta_pos` | Tarjeta (POS) |
+| `pago_en_local` | Pago en el local |
+
+Un método histórico diferente se identifica como **Método histórico: valor**,
+sin cambiar el dato ni sustituirlo por uno de los métodos actuales.
+
+Para un pedido **delivery con `tarjeta_pos`**, aparece **Llevar POS** con fondo
+rojo, texto blanco y tamaño destacado en tres lugares: tarjeta, detalle y aviso
+visual de pedido nuevo. No aparece para efectivo, pago en el local ni retiro,
+incluso si un retiro histórico tuviera `tarjeta_pos`.
+
+El detalle muestra **Subtotal / Envío / Total** con dos decimales y moneda UYU,
+tomados del pedido guardado, no de la tarifa actual del comercio. La API
+administrativa consulta `subtotal`, `costo_envio`, `total`, `metodo_pago` y
+`modalidad`; conserva la respuesta camelCase (`costoEnvio`, `metodoPago`) y los
+filtros y permisos existentes para administradores y empleados.
+
+La API de pedidos sin revisar agrega `metodoPago` al aviso. Se reutilizan el
+canal Realtime, el respaldo periódico y la sincronización existente: no hay
+otro canal ni otra alarma. Se conservan el contador **Sin revisar**, la marca
+**Visto** y el sonido único cuando aparece un pedido nuevo (sin sonar por la
+primera carga o por resincronizaciones del mismo pedido). Marcar visto no
+modifica el estado comercial ni elimina el aviso POS de tarjeta o detalle.
+
+Esta etapa no cambia checkout, registro, transiciones de estados ni mensajes de
+WhatsApp. No aplica SQL ni modifica vínculos. La migración de PIA-3 está aplicada
+solo en desarrollo y sigue pendiente en producción; las columnas monetarias leídas
+de `pedidos` ya existen en el esquema base.
+
+Pruebas enfocadas:
+`node --test tests/admin-pagos.test.mjs tests/whatsapp-pedidos.test.mjs`.
+Cubren APIs y roles, etiquetas, aviso POS en las tres superficies, desglose,
+sonido/Realtime y marca visto mediante dobles locales. El responsable confirmó
+«Llevar POS» en desarrollo; no se informó una prueba específica de reconexión,
+audio entre sesiones o una matriz de dispositivos.
+
+### Cierre técnico de PIA-3 (2026-10-20)
+
+Etapas 1–5 implementadas en `feature/PIA-3-medios-de-pago`, listas para revisión
+mediante PR hacia `develop`; no implica que estén integradas ni desplegadas en
+producción. La migración `20261020145041_medios_pago_costo_envio.sql` fue aplicada
+**únicamente en `piamonte-dev`**, según confirmación del responsable.
+
+| Criterio de aceptación | Implementación y evidencia |
+| --- | --- |
+| Delivery con efectivo | Selector obligatorio, validación de servidor/RPC; prueba funcional correcta en desarrollo informada por el responsable. |
+| Delivery con tarjeta POS | Selector y método `tarjeta_pos`; prueba funcional correcta en desarrollo informada por el responsable. |
+| Retiro con pago en local | Sin selector, `pago_en_local` y envío cero; prueba funcional correcta en desarrollo informada por el responsable. |
+| Aviso «Llevar POS» | Tarjeta, detalle y notificación visual para delivery+POS; cobertura local de las tres superficies y prueba funcional correcta en desarrollo informada por el responsable. |
+| Tarifa única administrable | Inicial 0 UYU, edición en Operación por RPC auditada; cambio funcional de tarifa confirmado en desarrollo. |
+| Desglose e importes | Subtotal/envío/total guardados, cálculo de servidor en centésimos, resumen estimado y total confirmado; cobertura automatizada en las suites de registro, checkout y administración. |
+| Permisos y controles existentes | Cobertura local de roles, auditoría SQL, disponibilidad, pausa, sonido y marca visto; no se presume una auditoría remota adicional durante el cierre. |
+
+La evidencia manual anterior fue suministrada por el responsable el 2026-10-20;
+no fue ejecutada nuevamente por el asistente durante este cierre. Las suites
+automatizadas usan dobles locales y comprobaciones estáticas SQL, no una base
+remota. Resultado de cierre: `npm.cmd run verificar` aprobado, salida 0; lint sin
+errores, tipos correctos, 115 pruebas aprobadas (0 fallidas, 0 omitidas) y build
+correcto. Persisten dos advertencias previas de ESLint por uso de `<img>` en
+`MarcaPiamonte.tsx` y `ContenidoCarrito.tsx`, y el aviso de Next.js por ignorar un
+lockfile fuera del repositorio. No se corrigieron por estar fuera de alcance.
+
+**Antes de producción:** revisar el historial real de migraciones pendientes
+(incluidas PIA-20 y PIA-2), respaldo y dependencias de la RPC; coordinar SQL y
+despliegue porque cambia la firma; contemplar bloqueo de pedidos e históricos
+incompatibles; verificar permisos/auditoría efectivos y repetir los tres flujos
+de pago y el cambio de tarifa. Confirmar también notificaciones entre sesiones,
+audio/reconexión y visualización móvil. No hay aprobación de producción implícita.
 
 ### Acceso de empleados por correo
 
@@ -245,4 +427,3 @@ Pruebas manuales:
    con la pausa desactivada, hacer un pedido, aceptarlo y verificar `tiempo_estimado_min/max`
    en `pedidos`, que no cambia al cambiar la demanda y que el aviso de WhatsApp incluye el
    rango; con un usuario `empleado`, Operación no aparece y `PATCH /api/admin/operacion` da 403.
-
