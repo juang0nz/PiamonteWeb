@@ -136,6 +136,77 @@ y tratamiento de históricos; no ejecutan la migración. Las pruebas funcionales
 en desarrollo fueron confirmadas por el responsable; no equivalen a verificar
 históricos, dependencias, permisos y auditoría efectivos en producción.
 
+### PIA-4, etapa 1: promociones automáticas preparadas, sin aplicar
+
+La migración nueva
+[`20261020180500_promociones_automaticas.sql`](../supabase/migrations/20261020180500_promociones_automaticas.sql)
+requiere la cadena hasta PIA-3. **Está preparada para revisión y no fue aplicada
+en desarrollo ni en producción.** No modifica migraciones anteriores, pedidos,
+la RPC de checkout, precios ni promociones de productos del catálogo.
+
+**Modelo:** `public.promociones` tiene UUID, comercio, clave funcional, nombre,
+activación, tipo y valor de descuento, aplicación, alcance, canal, código y fechas.
+Una restricción única `(comercio_id, clave)` permite buscar el descuento sin
+duplicados y ya indexa su consulta; no hace falta otro índice para este alcance.
+La FK al comercio utiliza `ON DELETE RESTRICT`: no se eliminan promociones en
+cascada. La tabla habilita RLS y no concede acceso directo a los roles de API.
+
+La combinación soportada es exclusivamente `descuento_web`, `porcentaje`,
+`automatica`, `tienda`, `web`, sin código (`NULL`). El valor es `numeric` **sin
+escala**, con check entero entre 0 y 100 inclusive: evita que PostgreSQL redondee
+una fracción antes de validarla. También rechaza valores no finitos. El nombre
+debe tener de 1 a 120 caracteres no blancos. Activación, valor y fechas no admiten
+`NULL`; `actualizado_en` usa el trigger genérico existente.
+
+Se crea una fila inicial **desactivada y con porcentaje 0** por comercio existente.
+Un trigger `AFTER INSERT` en `comercios` inicializa los futuros en la misma
+transacción. Ambos caminos usan `ON CONFLICT (comercio_id, clave) DO NOTHING`,
+sin sobrescribir configuración. La inicialización es de sistema, sin evento
+administrativo ni necesidad de una sesión; las modificaciones posteriores sí
+quedan auditadas. La migración completa no es reejecutable.
+
+**RPC y permisos:**
+
+| RPC | Acceso y resultado |
+| --- | --- |
+| `obtener_descuento_web(p_comercio_id uuid)` | `anon`, `authenticated` y `service_role`. Devuelve solo `(nombre text, valor numeric)` de la promoción activa y soportada de un comercio activo; cero filas si no aplica. No expone UUID, fechas ni metadatos administrativos. Un error SQL no es equivalente a cero filas ni debe tratarse como descuento desactivado. |
+| `admin_obtener_descuento_web(p_comercio_id uuid)` | Solo `authenticated`, con `auth.uid()` y autorización owner/admin del comercio o super admin activo. Devuelve la fila completa, aunque esté desactivada; no genera auditoría por una lectura. |
+| `admin_actualizar_descuento_web(p_operacion_id uuid, p_comercio_id uuid, p_cambios jsonb)` | Mismos permisos administrativos. Admite exclusivamente cambios parciales de `activa` (booleano JSON) y `valor` (número JSON entero 0–100); rechaza `NULL`, cadenas, claves desconocidas y objetos vacíos. Devuelve la fila resultante. |
+
+Las funciones son `SECURITY DEFINER`, de dueño explícito `postgres`, con
+`search_path` fijo. Se revocan los permisos implícitos antes de conceder únicamente
+los necesarios. No hay escritura directa para `service_role`; la administración
+debe usar el cliente de sesión, no el privado, para conservar `auth.uid()`.
+El rol empleado no puede consultar ni modificar la configuración administrativa,
+aunque puede acceder a la misma proyección pública que cualquier visitante.
+
+La única ampliación de los helpers de auditoría es la entidad `promocion` en el
+check de eventos y en `auditoria_iniciar_operacion`; se conserva el resto de su
+cuerpo y permisos. La actualización filtra siempre comercio y clave, bloquea por
+operación y luego por fila y registra instantáneas anteriores/nuevas en la misma
+transacción. Un reintento de la misma operación no vuelve a escribir ni auditar y
+devuelve el estado vigente; si los valores solicitados no coinciden con el evento
+original, falla explícitamente. La reutilización de una operación de otro actor,
+comercio, entidad o registro conserva los rechazos existentes.
+
+**Aplicación futura:** esta etapa no calcula descuentos ni cambia el total de un
+pedido. En etapas posteriores, el beneficio cubrirá todos los productos, variantes,
+adicionales y productos de la categoría Promos, tanto en delivery como en retiro.
+Se calculará solo sobre el subtotal bruto, nunca sobre envío, con configuración
+vigente al registrar y redondeo único al centésimo, con mitades hacia arriba.
+El 100 % está permitido; el registro y checkout deberán admitir un total cero
+para retiro antes de habilitar el beneficio. No activar comercialmente hasta
+integrar cálculo, persistencia histórica y UI. PIA-9 ampliará este modelo mediante
+migraciones nuevas, sin implementar ahora cupones, vigencias, prioridades ni usos.
+El script puntual de `supabase/pendientes/configurar_promo_10_lehmeyun.sql` no se usa.
+
+Pruebas: `node --test tests/promociones-sql.test.mjs`. Son comprobaciones estáticas
+del contrato, no ejecución PostgreSQL ni pruebas remotas de RLS o concurrencia.
+Antes de aplicar con autorización en desarrollo, revisar dependencias del entorno
+y contemplar los bloqueos DDL; después probar permisos efectivos, inicialización
+de comercios, auditoría y reintentos concurrentes. No se consulta ni cambia el
+vínculo de Supabase para preparar esta etapa.
+
 ### Nota sobre el historial de producción
 
 Al ejecutar `supabase db pull` en PIA-1, la CLI (v2.121.0) detectó que corría sin terminal
