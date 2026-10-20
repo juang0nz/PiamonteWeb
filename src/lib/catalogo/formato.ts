@@ -6,6 +6,17 @@ const formateadorPesos = new Intl.NumberFormat("es-UY", {
   maximumFractionDigits: 0,
 });
 
+const formateadorImportes = new Intl.NumberFormat("es-UY", {
+  style: "currency",
+  currency: "UYU",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+export function formatearImporteUYU(monto: number): string {
+  return `${formateadorImportes.format(monto)} UYU`;
+}
+
 // Da formato de pesos uruguayos a un monto (ej.: "$ 1.250").
 export function formatearPrecio(monto: number): string {
   return formateadorPesos.format(monto);

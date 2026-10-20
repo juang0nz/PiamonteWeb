@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   CONFIGURACION_INICIAL,
   tiemposPorDemanda,
+  validarCostoEnvio,
   type ConfiguracionOperativa,
   type TiemposVigentes,
 } from "./tiempos";
@@ -30,6 +31,20 @@ type ClienteLectura = {
 
 const COLUMNAS =
   "demanda, retiro_normal_min, retiro_normal_max, envio_normal_min, envio_normal_max, retiro_alta_min, retiro_alta_max, envio_alta_min, envio_alta_max, pedidos_pausados, mensaje_pausa";
+
+export async function obtenerCostoEnvio(comercioId: string): Promise<number> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("comercio_configuracion")
+    .select("costo_envio")
+    .eq("comercio_id", comercioId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || validarCostoEnvio(data.costo_envio)) {
+    throw new Error("La tarifa de delivery no está configurada o no es válida.");
+  }
+  return data.costo_envio;
+}
 
 // Lee la configuración operativa del comercio. La fila es pública para el comercio
 // activo, así que alcanza con el cliente de sesión (anónimo o autenticado). Si el

@@ -45,7 +45,8 @@ Los doce scripts que antes estaban en `supabase/migrations/` se movieron a
 La migración [`20261020145041_medios_pago_costo_envio.sql`](../supabase/migrations/20261020145041_medios_pago_costo_envio.sql)
 está preparada para revisión; **no se aplicó en desarrollo ni producción**. Requiere
 la cadena hasta PIA-2. No ejecutar el procedimiento de aplicación de abajo para esta
-etapa: primero deben adaptarse los llamadores del checkout en una etapa posterior.
+etapa: la aplicación sigue siendo una acción manual pendiente de revisión.
+Las etapas 3 y 4 adaptan el servidor y el checkout al contrato nuevo.
 
 - `comercio_configuracion.costo_envio`: `numeric(12,2) NOT NULL DEFAULT 0`, en UYU,
   con check no negativo que también excluye `NaN`. Las filas existentes y futuras
@@ -115,11 +116,12 @@ revoca acceso de `PUBLIC`, `anon` y `authenticated`, y restaura `EXECUTE` solo p
 para `authenticated` entre los roles de API, con autorización interna.
 
 La etapa 3 adapta el servidor a esta firma: envía `p_costo_envio` y usa
-`pago_en_local` para retiro. El checkout visual todavía no envía la elección de
-pago requerida para delivery (etapa 4). **No aplicar ni desplegar aisladamente
-como una integración completa**: coordinar migración, servidor y checkout.
+`pago_en_local` para retiro. La etapa 4 agrega la elección de pago requerida
+para delivery y muestra el total confirmado por ese servidor. **No desplegar
+contra el esquema anterior**: coordinar migración, servidor y checkout.
 No hay adaptador de compatibilidad con la RPC anterior.
-«Llevar POS», las notificaciones y la UI de checkout/Operación quedan fuera de esta etapa.
+«Llevar POS» y las notificaciones siguen pendientes para la etapa 5.
+La UI de Operación y checkout se implementa en las etapas 2 y 4, respectivamente.
 
 Pruebas enfocadas: `node --test tests/medios-pago-sql.test.mjs`. Verifican
 estáticamente el contrato, permisos, preservación de auditoría, ítems, disponibilidad

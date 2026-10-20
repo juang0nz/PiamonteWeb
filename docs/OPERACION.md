@@ -12,7 +12,8 @@ para clientes. Las antiguas rutas `/mi-cuenta` y `/auth/callback` se retiraron.
 No se modifican proveedores externos ni se eliminan usuarios de Supabase Auth.
 
 El checkout solicita nombre, celular y delivery o retiro; el pago se realiza en el
-local, al retirar o al recibir (efectivo o tarjeta), y no es una elección del cliente. Calle,
+local al retirar (`pago_en_local`) o al recibir: en delivery se exige elegir
+**Efectivo** o **Tarjeta (POS)**. Calle,
 número, apartamento y referencias corresponden a la entrega. No exige sesión,
 correo ni contraseña. El celular acepta formatos nacionales e internacionales de
 Uruguay y se guarda en E.164, por ejemplo `+59899806731`. Es un dato de contacto,
@@ -133,9 +134,10 @@ PIA-3 y el panel muestra el error con la opción de reintentar. No simula una ta
 guardada ni modifica Supabase para resolverlo. La consulta de Operación incluye la
 nueva columna, por lo que su carga requiere esa migración.
 
-Esta etapa **no aplica la tarifa al checkout**, no cambia el registro de pedidos,
-notificaciones, mensajes de pago, horarios ni perímetros. La futura aplicación debe
-coordinarse con la adaptación del checkout por el cambio de firma de la RPC de pedidos.
+La etapa 2 no cambió el registro de pedidos ni el checkout; las etapas 3 y 4
+integran esos contratos. Notificaciones, horarios y perímetros siguen fuera de alcance.
+La aplicación de la migración debe coordinarse con el despliegue por el cambio
+de firma de la RPC de pedidos.
 
 Verificación enfocada: `node --test tests/operacion.test.mjs`. Incluye validación
 monetaria, roles, filtro por comercio, contrato auditado, errores de migración y
@@ -170,15 +172,50 @@ Se conservan controles de horario, pausa, comercio activo, categorías,
 productos, variantes, opciones y conflicto atómico de disponibilidad.
 El registro continúa siendo para invitados, sin añadir sesión de cliente.
 
-**Integración pendiente:** el selector visual no se implementó y el checkout
-actual todavía no envía `metodoPago`; sus pedidos delivery serán rechazados
-hasta la etapa 4. La migración sigue sin aplicar: las consultas/RPC nuevas
-pueden fallar hasta su aplicación autorizada. No desplegar esta integración
-como un checkout completo antes de coordinar ambas partes.
+**Integración pendiente:** la etapa 4 incorpora el selector y envía `metodoPago`.
+La migración sigue sin aplicar: las consultas/RPC nuevas pueden fallar hasta su
+aplicación autorizada. No desplegar esta integración como un checkout completo
+antes de coordinar ambas partes.
 
 Pruebas enfocadas: `node --test tests/registro-pagos.test.mjs tests/operacion.test.mjs tests/checkout-admin.test.mjs`.
 Usan dobles locales de Supabase y verifican pagos, importes, rechazos y controles
 existentes; no aplican SQL ni reemplazan una prueba real posterior con la migración.
+
+### Checkout y selección de pago (PIA-3, etapa 4)
+
+- Delivery muestra **Efectivo** y **Tarjeta (POS)** sin selección automática.
+  Al confirmar sin elegir se muestra un error y no se envía el pedido.
+- Retiro muestra **Pagás en el local**, sin selector, y envía `pago_en_local`.
+  Cambiar de delivery a retiro elimina la elección previa; volver a delivery
+  exige elegir otra vez.
+- El método se conserva en `sessionStorage` junto a los demás datos de checkout.
+  Las sesiones anteriores sin método son compatibles: no se inventa un método
+  para delivery. Los valores desconocidos o incompatibles se descartan.
+- La página obtiene la tarifa desde `comercio_configuracion` con el cliente
+  existente y la pasa al resumen. Si falla, muestra un error y bloquea delivery;
+  no presenta una tarifa gratuita ficticia. Retiro muestra envío cero.
+- El resumen incluye **Subtotal**, **Envío** y **Total estimado** en UYU, con dos
+  decimales. Antes de seleccionar modalidad, envío y total quedan por confirmar.
+  La tarifa es una instantánea al cargar la página: puede cambiar durante la compra.
+- El navegador envía el método en la raíz del JSON y los datos e identificadores
+  del pedido, **no envía subtotal, tarifa ni total para fijar el cobro**.
+  El servidor vuelve a consultar el catálogo y la tarifa vigente.
+- Después del registro se muestran los importes confirmados por el servidor,
+  aunque difieran de la estimación. Solo entonces se vacía el carrito. Si el
+  servidor rechaza, se conservan carrito y datos para corregir o reintentar.
+  Si el pedido ya tiene identificador pero su respuesta monetaria es inválida,
+  se informa que fue registrado sin mostrar un total estimado como confirmado
+  ni ofrecer nuevamente el envío del mismo carrito.
+
+La migración continúa **sin aplicar**. Un error de tarifa o RPC no se resuelve
+automáticamente modificando Supabase. El panel administrativo de pedidos y las
+notificaciones quedan para la etapa 5.
+
+Prueba enfocada: `node --test tests/checkout-pagos.test.mjs`. Cubre persistencia,
+cambio de modalidad, radios y errores accesibles, payload sin importes,
+confirmación con tarifa actualizada, pausa/cierre y fallos de integración mediante
+dobles locales. La prueba real con Supabase y la revisión visual en dispositivos
+quedan pendientes; no se requieren conexiones remotas para esta suite.
 
 ### Acceso de empleados por correo
 
