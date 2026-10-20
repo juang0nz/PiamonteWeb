@@ -128,14 +128,16 @@ super admin. El rol `empleado` sigue sin acceso.
 - La tarifa inicial definida en la migración de etapa 1 es 0 UYU; el retiro
   no tiene costo de envío.
 
-**Migración pendiente:** no se aplicó ni modificó la migración de etapa 1. Hasta
-que se aplique con autorización, la API puede devolver 503 indicando que falta
+**Estado al cierre:** la migración de etapa 1 está aplicada únicamente en
+`piamonte-dev`, según confirmación del responsable del 2026-10-20. En un entorno
+sin esa migración, la API puede devolver 503 indicando que falta
 PIA-3 y el panel muestra el error con la opción de reintentar. No simula una tarifa
 guardada ni modifica Supabase para resolverlo. La consulta de Operación incluye la
 nueva columna, por lo que su carga requiere esa migración.
 
 La etapa 2 no cambió el registro de pedidos ni el checkout; las etapas 3 y 4
-integran esos contratos. Notificaciones, horarios y perímetros siguen fuera de alcance.
+integran esos contratos. La etapa 5 agrega avisos POS; horarios y perímetros
+siguen fuera de PIA-3.
 La aplicación de la migración debe coordinarse con el despliegue por el cambio
 de firma de la RPC de pedidos.
 
@@ -172,14 +174,15 @@ Se conservan controles de horario, pausa, comercio activo, categorías,
 productos, variantes, opciones y conflicto atómico de disponibilidad.
 El registro continúa siendo para invitados, sin añadir sesión de cliente.
 
-**Integración pendiente:** la etapa 4 incorpora el selector y envía `metodoPago`.
-La migración sigue sin aplicar: las consultas/RPC nuevas pueden fallar hasta su
-aplicación autorizada. No desplegar esta integración como un checkout completo
-antes de coordinar ambas partes.
+**Integración:** la etapa 4 incorpora el selector y envía `metodoPago`.
+Las pruebas funcionales en `piamonte-dev` fueron correctas según confirmación del
+responsable. En producción la migración sigue pendiente: no desplegar contra la
+firma anterior sin coordinar aplicación de SQL y código.
 
 Pruebas enfocadas: `node --test tests/registro-pagos.test.mjs tests/operacion.test.mjs tests/checkout-admin.test.mjs`.
 Usan dobles locales de Supabase y verifican pagos, importes, rechazos y controles
-existentes; no aplican SQL ni reemplazan una prueba real posterior con la migración.
+existentes; no aplican SQL. La evidencia funcional en desarrollo se registra en el
+cierre técnico de PIA-3, sin atribuirla a la suite local.
 
 ### Checkout y selección de pago (PIA-3, etapa 4)
 
@@ -207,15 +210,16 @@ existentes; no aplican SQL ni reemplazan una prueba real posterior con la migrac
   se informa que fue registrado sin mostrar un total estimado como confirmado
   ni ofrecer nuevamente el envío del mismo carrito.
 
-La migración continúa **sin aplicar**. Un error de tarifa o RPC no se resuelve
+La migración está **aplicada solo en desarrollo**. Un error de tarifa o RPC no se resuelve
 automáticamente modificando Supabase. La etapa 5 incorpora la visualización
 administrativa descrita a continuación.
 
 Prueba enfocada: `node --test tests/checkout-pagos.test.mjs`. Cubre persistencia,
 cambio de modalidad, radios y errores accesibles, payload sin importes,
 confirmación con tarifa actualizada, pausa/cierre y fallos de integración mediante
-dobles locales. La prueba real con Supabase y la revisión visual en dispositivos
-quedan pendientes; no se requieren conexiones remotas para esta suite.
+dobles locales. Las pruebas funcionales con Supabase de desarrollo fueron
+confirmadas por el responsable; no se informó una matriz de dispositivos.
+No se requieren conexiones remotas para esta suite.
 
 ### Medios de pago y aviso POS en administración (PIA-3, etapa 5)
 
@@ -249,15 +253,49 @@ primera carga o por resincronizaciones del mismo pedido). Marcar visto no
 modifica el estado comercial ni elimina el aviso POS de tarjeta o detalle.
 
 Esta etapa no cambia checkout, registro, transiciones de estados ni mensajes de
-WhatsApp. No aplica SQL ni modifica vínculos. La migración de PIA-3 continúa
-pendiente de revisión y aplicación autorizada; las columnas monetarias leídas
+WhatsApp. No aplica SQL ni modifica vínculos. La migración de PIA-3 está aplicada
+solo en desarrollo y sigue pendiente en producción; las columnas monetarias leídas
 de `pedidos` ya existen en el esquema base.
 
 Pruebas enfocadas:
 `node --test tests/admin-pagos.test.mjs tests/whatsapp-pedidos.test.mjs`.
 Cubren APIs y roles, etiquetas, aviso POS en las tres superficies, desglose,
-sonido/Realtime y marca visto mediante dobles locales. La integración real de
-Realtime con Supabase y la revisión visual en dispositivos siguen pendientes.
+sonido/Realtime y marca visto mediante dobles locales. El responsable confirmó
+«Llevar POS» en desarrollo; no se informó una prueba específica de reconexión,
+audio entre sesiones o una matriz de dispositivos.
+
+### Cierre técnico de PIA-3 (2026-10-20)
+
+Etapas 1–5 implementadas en `feature/PIA-3-medios-de-pago`, listas para revisión
+mediante PR hacia `develop`; no implica que estén integradas ni desplegadas en
+producción. La migración `20261020145041_medios_pago_costo_envio.sql` fue aplicada
+**únicamente en `piamonte-dev`**, según confirmación del responsable.
+
+| Criterio de aceptación | Implementación y evidencia |
+| --- | --- |
+| Delivery con efectivo | Selector obligatorio, validación de servidor/RPC; prueba funcional correcta en desarrollo informada por el responsable. |
+| Delivery con tarjeta POS | Selector y método `tarjeta_pos`; prueba funcional correcta en desarrollo informada por el responsable. |
+| Retiro con pago en local | Sin selector, `pago_en_local` y envío cero; prueba funcional correcta en desarrollo informada por el responsable. |
+| Aviso «Llevar POS» | Tarjeta, detalle y notificación visual para delivery+POS; cobertura local de las tres superficies y prueba funcional correcta en desarrollo informada por el responsable. |
+| Tarifa única administrable | Inicial 0 UYU, edición en Operación por RPC auditada; cambio funcional de tarifa confirmado en desarrollo. |
+| Desglose e importes | Subtotal/envío/total guardados, cálculo de servidor en centésimos, resumen estimado y total confirmado; cobertura automatizada en las suites de registro, checkout y administración. |
+| Permisos y controles existentes | Cobertura local de roles, auditoría SQL, disponibilidad, pausa, sonido y marca visto; no se presume una auditoría remota adicional durante el cierre. |
+
+La evidencia manual anterior fue suministrada por el responsable el 2026-10-20;
+no fue ejecutada nuevamente por el asistente durante este cierre. Las suites
+automatizadas usan dobles locales y comprobaciones estáticas SQL, no una base
+remota. Resultado de cierre: `npm.cmd run verificar` aprobado, salida 0; lint sin
+errores, tipos correctos, 115 pruebas aprobadas (0 fallidas, 0 omitidas) y build
+correcto. Persisten dos advertencias previas de ESLint por uso de `<img>` en
+`MarcaPiamonte.tsx` y `ContenidoCarrito.tsx`, y el aviso de Next.js por ignorar un
+lockfile fuera del repositorio. No se corrigieron por estar fuera de alcance.
+
+**Antes de producción:** revisar el historial real de migraciones pendientes
+(incluidas PIA-20 y PIA-2), respaldo y dependencias de la RPC; coordinar SQL y
+despliegue porque cambia la firma; contemplar bloqueo de pedidos e históricos
+incompatibles; verificar permisos/auditoría efectivos y repetir los tres flujos
+de pago y el cambio de tarifa. Confirmar también notificaciones entre sesiones,
+audio/reconexión y visualización móvil. No hay aprobación de producción implícita.
 
 ### Acceso de empleados por correo
 
