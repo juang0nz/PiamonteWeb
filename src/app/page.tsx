@@ -10,6 +10,8 @@ import { obtenerCatalogo } from "@/lib/catalogo/consultas";
 import type { Catalogo } from "@/lib/catalogo/tipos";
 import { SLUG_COMERCIO } from "@/lib/comercio";
 import { obtenerEstadoOperativo } from "@/lib/comercio/configuracion";
+import { obtenerDescuentoWeb } from "@/lib/comercio/descuento-web-publico";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
 import { CONFIGURACION_INICIAL, tiemposPorDemanda } from "@/lib/comercio/tiempos";
 
@@ -95,6 +97,13 @@ export default async function PaginaCatalogo({
     console.error("No se pudo leer la configuración operativa del comercio:", errorConfiguracion);
   }
 
+  let descuentoWeb: EstadoDescuentoWeb = { estado: "desconocido" };
+  try {
+    descuentoWeb = await obtenerDescuentoWeb(catalogo.comercio.id);
+  } catch (errorDescuento) {
+    console.error("No se pudo leer el descuento web:", errorDescuento);
+  }
+
   return (
     <div className="flex flex-1 flex-col bg-negro lg:flex-row">
       <ActualizadorCatalogo comercioId={catalogo.comercio.id} />
@@ -110,6 +119,7 @@ export default async function PaginaCatalogo({
         abrirCarritoInicio={abrirCarritoInicio}
         estadoApertura={estadoApertura}
         pausa={pausa}
+        descuentoWeb={descuentoWeb}
       />
 
       <main className="min-w-0 flex-1 space-y-5 px-3 pb-8 pt-4 sm:px-4 lg:space-y-6 lg:px-5 lg:pb-6 lg:pt-5 xl:px-7">
@@ -198,7 +208,7 @@ export default async function PaginaCatalogo({
         )}
       </main>
 
-      <ReservaCarrito pausa={pausa} />
+      <ReservaCarrito pausa={pausa} descuentoWeb={descuentoWeb} />
     </div>
   );
 }

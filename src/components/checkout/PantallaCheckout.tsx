@@ -16,7 +16,9 @@ import { useHidratado } from "@/lib/hidratacion";
 import { SLUG_COMERCIO } from "@/lib/comercio";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
 import type { TiemposVigentes } from "@/lib/comercio/tiempos";
-import type { ResultadoRegistroPedido } from "@/lib/pedidos/tipos";
+import type { ResultadoRegistroPedidoConfirmado } from "@/lib/pedidos/tipos";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
+import { validarConfirmacionPedido } from "@/lib/checkout/confirmacion";
 import { formatearImporteUYU } from "@/lib/catalogo/formato";
 import { FormularioCheckout } from "./FormularioCheckout";
 import { ResumenPedido } from "./ResumenPedido";
@@ -30,11 +32,13 @@ export function PantallaCheckout({
   tiempos,
   pausa = { pausado: false, mensaje: "" },
   costoEnvio = null,
+  descuentoWeb = { estado: "desconocido" },
 }: {
   hrefCarrito: string;
   tiempos?: TiemposVigentes;
   pausa?: PausaCheckout;
   costoEnvio?: number | null;
+  descuentoWeb?: EstadoDescuentoWeb;
 }) {
   const hidratado = useHidratado();
   const { items, total } = useCarrito();
@@ -43,7 +47,7 @@ export function PantallaCheckout({
   const [estadoEnvio, setEstadoEnvio] = useState<"idle" | "enviando" | "ok">("idle");
   const [pedidoId, setPedidoId] = useState<string | null>(null);
   const [numeroPedido, setNumeroPedido] = useState<number | null>(null);
-  const [importesConfirmados, setImportesConfirmados] = useState<ResultadoRegistroPedido | null>(null);
+  const [importesConfirmados, setImportesConfirmados] = useState<ResultadoRegistroPedidoConfirmado | null>(null);
   const [avisoImportes, setAvisoImportes] = useState<string | null>(null);
   const [errorServidor, setErrorServidor] = useState<string | null>(null);
   const estadoApertura = obtenerEstadoApertura();
@@ -65,7 +69,7 @@ export function PantallaCheckout({
   }
 
   async function confirmarPedido() {
-    if (estadoEnvio === "enviando") return;
+    if (estadoEnvio !== "idle") return;
     console.info("[checkout] click confirmar", {
       items: items.length,
       cantidadTotal: items.reduce((acum, item) => acum + item.cantidad, 0),
@@ -74,7 +78,7 @@ export function PantallaCheckout({
     setIntentoEnviar(true);
     setErrorServidor(null);
     const hayErrores = Object.keys({ ...validarDatosCheckout(datos), ...validarPagoCheckout(datos) }).length > 0;
-    if (hayErrores || items.length === 0) {
+    if (hayErrores || !datos.tipoEntrega || items.length === 0) {
       console.info("[checkout] validación local bloquea envío", {
         hayErrores,
         items: items.length,
@@ -92,6 +96,10 @@ export function PantallaCheckout({
     }
     if (datos.tipoEntrega === "delivery" && costoEnvio === null) {
       setErrorServidor("No pudimos consultar la tarifa de delivery. Recargá la página para reintentar.");
+      return;
+    }
+    if (descuentoWeb.estado === "desconocido") {
+      setErrorServidor("No pudimos consultar el descuento web. Recargá la página antes de confirmar.");
       return;
     }
     if (!estadoApertura.abierto && !datos.programarParaApertura) {
@@ -135,33 +143,27 @@ export function PantallaCheckout({
         }),
       });
 
-      const cuerpo = (await respuesta.json().catch(() => null)) as
-        | (Partial<ResultadoRegistroPedido> & { error?: string; code?: string })
-        | null;
+      const json: unknown = await respuesta.json().catch(() => null);
+      const cuerpo = typeof json === "object" && json !== null && !Array.isArray(json) ? json : null;
       console.info("[checkout] respuesta registro", {
         status: respuesta.status,
         ok: respuesta.ok,
-        code: cuerpo?.code ?? null,
-        tienePedidoId: Boolean(cuerpo?.pedidoId),
-        tieneError: Boolean(cuerpo?.error),
+        code: cuerpo && "code" in cuerpo ? cuerpo.code : null,
+        tienePedidoId: Boolean(cuerpo && "pedidoId" in cuerpo && cuerpo.pedidoId),
+        tieneError: Boolean(cuerpo && "error" in cuerpo && cuerpo.error),
       });
-      if (!respuesta.ok || !cuerpo?.pedidoId) {
-        const mensaje = cuerpo?.error ?? "No pudimos registrar el pedido.";
+      if (!respuesta.ok || !cuerpo || !("pedidoId" in cuerpo) ||
+        typeof cuerpo.pedidoId !== "string" || !cuerpo.pedidoId.trim()) {
+        const mensaje = cuerpo && "error" in cuerpo && typeof cuerpo.error === "string" ? cuerpo.error : "No pudimos registrar el pedido.";
         throw new Error(mensaje);
       }
 
       setPedidoId(cuerpo.pedidoId);
-      setNumeroPedido(typeof cuerpo.numeroPedido === "number" ? cuerpo.numeroPedido : null);
-      if (
-        typeof cuerpo.subtotal === "number" && Number.isFinite(cuerpo.subtotal) && cuerpo.subtotal > 0 &&
-        typeof cuerpo.costoEnvio === "number" && Number.isFinite(cuerpo.costoEnvio) && cuerpo.costoEnvio >= 0 &&
-        typeof cuerpo.total === "number" && Number.isFinite(cuerpo.total) && cuerpo.total > 0 &&
-        Math.round(cuerpo.total * 100) === Math.round(cuerpo.subtotal * 100) + Math.round(cuerpo.costoEnvio * 100)
-      ) {
-        setImportesConfirmados({
-          pedidoId: cuerpo.pedidoId, numeroPedido: cuerpo.numeroPedido ?? null,
-          subtotal: cuerpo.subtotal, costoEnvio: cuerpo.costoEnvio, total: cuerpo.total,
-        });
+      setNumeroPedido("numeroPedido" in cuerpo && typeof cuerpo.numeroPedido === "number" &&
+        Number.isSafeInteger(cuerpo.numeroPedido) && cuerpo.numeroPedido > 0 ? cuerpo.numeroPedido : null);
+      const importes = validarConfirmacionPedido(cuerpo, datos.tipoEntrega);
+      if (importes) {
+        setImportesConfirmados(importes);
       } else {
         // El pedido ya existe: no habilitar otro envío si la respuesta monetaria es inválida.
         console.error("[checkout] pedido registrado sin importes confirmados válidos");
@@ -201,6 +203,7 @@ export function PantallaCheckout({
           {importesConfirmados && (
             <dl className="mx-auto mt-5 max-w-sm space-y-2 rounded-2xl bg-white p-4 text-sm">
               <div className="flex justify-between"><dt>Subtotal</dt><dd>{formatearImporteUYU(importesConfirmados.subtotal)}</dd></div>
+              <div className="flex justify-between"><dt>Descuento web{importesConfirmados.promocion ? ` (${importesConfirmados.promocion.porcentaje} %)` : ""}</dt><dd>−{formatearImporteUYU(importesConfirmados.descuento)}</dd></div>
               <div className="flex justify-between"><dt>Envío</dt><dd>{formatearImporteUYU(importesConfirmados.costoEnvio)}</dd></div>
               <div className="flex justify-between font-semibold"><dt>Total confirmado</dt><dd>{formatearImporteUYU(importesConfirmados.total)}</dd></div>
             </dl>
@@ -258,7 +261,7 @@ export function PantallaCheckout({
         />
 
         <div className="lg:sticky lg:top-8">
-          <ResumenPedido items={items} subtotal={total} costoEnvio={envioEstimado}>
+          <ResumenPedido items={items} subtotal={total} costoEnvio={envioEstimado} descuentoWeb={descuentoWeb}>
             {datos.tipoEntrega === "delivery" && costoEnvio === null && (
               <p role="alert" className="mb-3 text-sm text-rojo">
                 No pudimos consultar la tarifa de delivery. Recargá la página para reintentar.
@@ -296,6 +299,7 @@ export function PantallaCheckout({
               form={ID_FORMULARIO}
               disabled={
                 estadoEnvio === "enviando" ||
+                descuentoWeb.estado === "desconocido" ||
                 (datos.tipoEntrega === "delivery" && costoEnvio === null) ||
                 pausa.pausado ||
                 (!estadoApertura.abierto && !datos.programarParaApertura)

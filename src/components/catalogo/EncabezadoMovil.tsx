@@ -8,6 +8,7 @@ import { ContenidoCarrito, type PausaCarrito } from "./ContenidoCarrito";
 import { Dialogo } from "./Dialogo";
 import { NavegacionPiamonte } from "./NavegacionPiamonte";
 import type { EstadoApertura } from "@/lib/comercio/horarios";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
 
 // Encabezado móvil con menú lateral y acceso al carrito.
 export function EncabezadoMovil({
@@ -16,12 +17,14 @@ export function EncabezadoMovil({
   abrirCarritoInicio = false,
   estadoApertura,
   pausa,
+  descuentoWeb,
 }: {
   nombreComercio: string;
   categoriaActiva?: string;
   abrirCarritoInicio?: boolean;
   estadoApertura: EstadoApertura;
   pausa?: PausaCarrito;
+  descuentoWeb?: EstadoDescuentoWeb;
 }) {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [carritoAbierto, setCarritoAbierto] = useState(abrirCarritoInicio);
@@ -125,7 +128,7 @@ export function EncabezadoMovil({
       {carritoAbierto && (
         <Dialogo titulo="TU PEDIDO" onCerrar={() => setCarritoAbierto(false)}>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <ContenidoCarrito pausa={pausa} />
+            <ContenidoCarrito pausa={pausa} descuentoWeb={descuentoWeb} />
           </div>
         </Dialogo>
       )}

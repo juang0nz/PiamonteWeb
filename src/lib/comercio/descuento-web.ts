@@ -3,6 +3,10 @@ export type ConfiguracionDescuentoWeb = {
   valor: number;
 };
 
+export type EstadoDescuentoWeb =
+  | { estado: "conocido"; promocion: { nombre: string; porcentaje: number } | null }
+  | { estado: "desconocido" };
+
 export function esPorcentajeDescuentoWeb(valor: unknown): valor is number {
   return typeof valor === "number" && Number.isInteger(valor) && valor >= 0 && valor <= 100;
 }

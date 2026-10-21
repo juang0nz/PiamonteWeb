@@ -169,8 +169,8 @@ el porcentaje para un uso posterior.
   error y se ofrece reintentar, sin fingir configuración al 0 % ni crear registros
   desde el panel. La migración inicial es la que define desactivado y 0 %.
 
-La sección advierte que no debe activarse comercialmente hasta completar carrito
-y checkout, incluida la confirmación de total cero. El 100 % afecta solo productos,
+La sección advierte que debe verificarse la integración y las migraciones en
+desarrollo antes de activarlo comercialmente. El 100 % afecta solo productos,
 variantes y adicionales; el envío no se descuenta. Esta etapa no modifica precios,
 pedidos históricos, interfaces de compra ni migraciones.
 
@@ -178,6 +178,50 @@ Pruebas: `node --test tests/admin-descuento-web.test.mjs tests/operacion.test.mj
 Cubren validaciones, permisos, RPC auditada y eventos de interfaz con dobles locales,
 sin SQL remoto. La comprobación contra Supabase queda pendiente de una aplicación
 autorizada de las migraciones en desarrollo.
+
+### Descuento web en carrito, checkout y confirmación (PIA-4, etapa 5)
+
+- Catálogo y checkout consultan `obtener_descuento_web` con el cliente público de
+  sesión, sin acceso directo a promociones ni campos administrativos. Una lista
+  vacía indica descuento desactivado; un error o respuesta inválida indica
+  configuración desconocida, **no descuento cero**. Mientras sea desconocida,
+  checkout muestra el error y bloquea la confirmación hasta recargar.
+- El carrito de escritorio y el diálogo móvil comparten el desglose de subtotal
+  bruto de productos, descuento y subtotal con descuento. El envío y total
+  quedan **Por confirmar** porque todavía no se eligió modalidad.
+- Checkout usa `calcularDescuentoPorcentual` para la estimación: porcentaje entero
+  0–100 sobre el subtotal completo, redondeo único a centésimos con mitades hacia
+  arriba, envío intacto y `total = subtotal - descuento + costoEnvio`.
+  Retiro usa envío cero y admite total cero con 100 %. Delivery conserva efectivo
+  y tarjeta POS; retiro conserva pago en el local.
+- Los subtotales del carrito se acumulan en centésimos. Cambiar cantidades o quitar
+  productos recalcula el descuento sobre el subtotal, no por unidad. Variantes,
+  adicionales y productos de Promos no se excluyen.
+- La configuración visual es una instantánea, sin persistir porcentajes ni
+  descuentos en el navegador. El refresco existente del catálogo vuelve a leerla;
+  el servidor y la RPC resuelven siempre los valores vigentes al registrar.
+  El payload no incluye importes, porcentajes ni identificadores de promociones.
+- La confirmación valida la instantánea devuelta y muestra subtotal, descuento,
+  envío y total realmente registrados, aunque cambien tarifa o promoción durante
+  la compra. No acepta importes negativos, fuera de rango, fracciones de centésimo,
+  porcentajes inválidos ni fórmulas inconsistentes. No compara contra la promoción
+  estimada. Si el pedido existe pero sus importes no se pueden confirmar, avisa sin
+  mostrar un total ficticio ni ofrecer otro envío del mismo carrito.
+- El pedido sigue pendiente de confirmación manual del local. No se cambian
+  notificaciones ni el panel administrativo de pedidos; su desglose de descuento
+  continúa pendiente de la etapa correspondiente.
+
+Pruebas enfocadas:
+`node --test tests/checkout-pagos.test.mjs tests/descuento-web-publico.test.mjs tests/descuentos.test.mjs`.
+Incluyen 0 %, 10 %, 100 %, delivery/retiro, cantidades, redondeos, ausencia de
+migración, cambios de configuración y respuestas manipuladas mediante dobles
+locales. También se verificó la aplicación compilada en navegador con un servicio
+HTTP simulado local y respuestas de registro interceptadas: carrito a 1440 px,
+diálogo móvil a 375 px, checkout a 320 px sin desborde horizontal, POS con cambio
+de porcentaje al confirmar, retiro al 100 %, lectura fallida y respuesta monetaria
+inconsistente. El doble no implementa Realtime ni ejecuta SQL.
+Las migraciones siguen sin aplicar; la prueba funcional contra Supabase
+de desarrollo requiere autorización y no se reemplaza por estas pruebas.
 
 ## Desarrollo y verificación
 

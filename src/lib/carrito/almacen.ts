@@ -117,7 +117,7 @@ export function useCarrito() {
     () => ({
       items: lista,
       cantidadTotal: lista.reduce((s, i) => s + i.cantidad, 0),
-      total: lista.reduce((s, i) => s + i.precioUnitario * i.cantidad, 0),
+      total: lista.reduce((s, i) => s + Math.round(i.precioUnitario * 100) * i.cantidad, 0) / 100,
     }),
     [lista],
   );

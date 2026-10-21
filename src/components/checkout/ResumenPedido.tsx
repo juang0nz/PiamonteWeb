@@ -1,5 +1,7 @@
 import { formatearImporteUYU } from "@/lib/catalogo/formato";
 import type { ItemCarrito, OpcionCarrito } from "@/lib/carrito/tipos";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
+import { ResumenImportes } from "@/components/catalogo/ResumenImportes";
 
 // Agrupa las opciones elegidas por nombre de grupo (por ejemplo, "Gustos: A, B").
 function agruparOpciones(opciones: OpcionCarrito[]) {
@@ -17,11 +19,13 @@ export function ResumenPedido({
   items,
   subtotal,
   costoEnvio,
+  descuentoWeb = { estado: "desconocido" },
   children,
 }: {
   items: ItemCarrito[];
   subtotal: number;
   costoEnvio: number | null;
+  descuentoWeb?: EstadoDescuentoWeb;
   children?: React.ReactNode;
 }) {
   return (
@@ -62,19 +66,7 @@ export function ResumenPedido({
         ))}
       </ul>
       <div className="border-t border-negro/10 px-5 py-4">
-        <p className="flex items-center justify-between font-semibold text-[#171717]">
-          <span className="text-neutral-800">Subtotal</span>
-          <span className="text-xl text-[#171717]">{formatearImporteUYU(subtotal)}</span>
-        </p>
-        <p className="mt-2 flex items-center justify-between text-sm text-neutral-800">
-          <span>Envío</span>
-          <span>{costoEnvio === null ? "Por confirmar" : formatearImporteUYU(costoEnvio)}</span>
-        </p>
-        <p className="mt-3 flex items-center justify-between font-semibold text-[#171717]">
-          <span>Total estimado</span>
-          <span>{costoEnvio === null ? "Por confirmar" : formatearImporteUYU((Math.round(subtotal * 100) + Math.round(costoEnvio * 100)) / 100)}</span>
-        </p>
-        <p className="mt-2 text-xs text-negro/60">Importes en UYU. El servidor confirma el total al registrar el pedido.</p>
+        <ResumenImportes subtotal={subtotal} costoEnvio={costoEnvio} descuentoWeb={descuentoWeb} />
         {children && <div className="mt-4">{children}</div>}
       </div>
     </section>

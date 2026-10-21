@@ -103,7 +103,7 @@ export function ConfiguracionDescuentoWeb() {
         <p className="mt-1 text-sm text-negro/60">Para todos los productos, variantes y adicionales, en delivery y retiro. No descuenta el envío.</p>
       </div>
       <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        PIA-4 en integración: no actives el descuento comercialmente hasta completar carrito y checkout, incluida la confirmación de total cero.
+        PIA-4 en integración: verificá las migraciones y los importes en desarrollo antes de activar el descuento comercialmente.
       </p>
       {cargando && <p role="status" className="text-sm text-negro/60">Cargando descuento web…</p>}
       {error && <p role="alert" id="error-descuento-web" className="rounded-xl bg-rojo/10 px-4 py-3 text-sm text-rojo">{error}</p>}

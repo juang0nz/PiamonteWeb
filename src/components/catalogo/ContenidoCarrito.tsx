@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { formatearPrecio } from "@/lib/catalogo/formato";
 import { cambiarCantidad, quitarItem, useCarrito } from "@/lib/carrito/almacen";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
+import { ResumenImportes } from "./ResumenImportes";
 
 export type PausaCarrito = { pausado: boolean; mensaje: string };
 
@@ -10,12 +12,12 @@ export type PausaCarrito = { pausado: boolean; mensaje: string };
 // Si el comercio pausó los pedidos, el botón de finalizar se reemplaza por el aviso.
 export function ContenidoCarrito({
   pausa = { pausado: false, mensaje: "" },
+  descuentoWeb = { estado: "desconocido" },
 }: {
   pausa?: PausaCarrito;
+  descuentoWeb?: EstadoDescuentoWeb;
 }) {
   const { items, total } = useCarrito();
-  const envio = 0;
-  const totalFinal = total + envio;
 
   if (items.length === 0) {
     return (
@@ -99,18 +101,7 @@ export function ContenidoCarrito({
       </ul>
 
       <div className="mt-3 space-y-1.5 border-t border-negro/10 pt-3 text-sm">
-        <p className="flex items-center justify-between text-negro/75">
-          <span>Subtotal</span>
-          <span>{formatearPrecio(total)}</span>
-        </p>
-        <p className="flex items-center justify-between text-negro/75">
-          <span>Envío</span>
-          <span>{formatearPrecio(envio)}</span>
-        </p>
-        <p className="flex items-center justify-between border-t border-negro/10 pt-2 font-semibold">
-          <span>Total</span>
-          <span className="text-2xl">{formatearPrecio(totalFinal)}</span>
-        </p>
+        <ResumenImportes subtotal={total} costoEnvio={null} descuentoWeb={descuentoWeb} />
       </div>
 
       {pausa.pausado ? (

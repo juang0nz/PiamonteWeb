@@ -6,6 +6,8 @@ import { obtenerComercio } from "@/lib/catalogo/consultas";
 import type { Comercio } from "@/lib/catalogo/tipos";
 import { SLUG_COMERCIO } from "@/lib/comercio";
 import { obtenerCostoEnvio, obtenerEstadoOperativo } from "@/lib/comercio/configuracion";
+import { obtenerDescuentoWeb } from "@/lib/comercio/descuento-web-publico";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
 import { CONFIGURACION_INICIAL, tiemposPorDemanda } from "@/lib/comercio/tiempos";
 
 export const metadata: Metadata = {
@@ -55,12 +57,18 @@ export default async function PaginaCheckout() {
   } catch (errorTarifa) {
     console.error("No se pudo leer la tarifa de delivery:", errorTarifa);
   }
+  let descuentoWeb: EstadoDescuentoWeb = { estado: "desconocido" };
+  try {
+    descuentoWeb = await obtenerDescuentoWeb(comercio.id);
+  } catch (errorDescuento) {
+    console.error("No se pudo leer el descuento web:", errorDescuento);
+  }
 
   return (
     <div className="flex flex-1 flex-col">
       <EncabezadoCheckout nombreComercio={comercio.nombre} />
       <main className="flex-1 bg-gradient-to-b from-[#fff3ee] via-[#fff8f2] to-[#fffdf8] px-4 py-6 text-[#171717] sm:px-8 lg:py-10">
-        <PantallaCheckout hrefCarrito={HREF_CARRITO} tiempos={tiempos} pausa={pausa} costoEnvio={costoEnvio} />
+        <PantallaCheckout hrefCarrito={HREF_CARRITO} tiempos={tiempos} pausa={pausa} costoEnvio={costoEnvio} descuentoWeb={descuentoWeb} />
       </main>
     </div>
   );
