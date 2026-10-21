@@ -1,0 +1,17 @@
+[
+  { "caso": "sin descuento", "subtotal": 1000, "costoEnvio": 50, "porcentaje": 0, "descuento": 0, "total": 1050 },
+  { "caso": "diez por ciento solo sobre productos", "subtotal": 1000, "costoEnvio": 50, "porcentaje": 10, "descuento": 100, "total": 950 },
+  { "caso": "retiro gratis al cien por ciento", "subtotal": 125.99, "costoEnvio": 0, "porcentaje": 100, "descuento": 125.99, "total": 0 },
+  { "caso": "delivery conserva todo el envio al cien por ciento", "subtotal": 125.99, "costoEnvio": 35.75, "porcentaje": 100, "descuento": 125.99, "total": 35.75 },
+  { "caso": "por debajo de medio centesimo", "subtotal": 0.04, "costoEnvio": 0, "porcentaje": 10, "descuento": 0, "total": 0.04 },
+  { "caso": "mitad exacta hacia arriba", "subtotal": 0.05, "costoEnvio": 0, "porcentaje": 10, "descuento": 0.01, "total": 0.04 },
+  { "caso": "por encima de medio centesimo", "subtotal": 0.06, "costoEnvio": 0, "porcentaje": 10, "descuento": 0.01, "total": 0.05 },
+  { "caso": "redondeo sobre subtotal completo de tres unidades de cinco centesimos", "subtotal": 0.15, "costoEnvio": 0, "porcentaje": 10, "descuento": 0.02, "total": 0.13 },
+  { "caso": "importes con centesimos", "subtotal": 123.45, "costoEnvio": 25.15, "porcentaje": 10, "descuento": 12.35, "total": 136.25 },
+  { "caso": "porcentaje entero no decimal", "subtotal": 1.01, "costoEnvio": 0.29, "porcentaje": 33, "descuento": 0.33, "total": 0.97 },
+  { "caso": "subtotal cero", "subtotal": 0, "costoEnvio": 0.01, "porcentaje": 100, "descuento": 0, "total": 0.01 },
+  { "caso": "maximo sin descuento", "subtotal": 9999999999.99, "costoEnvio": 0, "porcentaje": 0, "descuento": 0, "total": 9999999999.99 },
+  { "caso": "maximo y redondeo", "subtotal": 9999999999.99, "costoEnvio": 0, "porcentaje": 99, "descuento": 9899999999.99, "total": 100000000 },
+  { "caso": "total justo en maximo", "subtotal": 9999999999.98, "costoEnvio": 0.01, "porcentaje": 0, "descuento": 0, "total": 9999999999.99 },
+  { "caso": "suma bruta fuera de rango pero total descontado valido", "subtotal": 9999999999.99, "costoEnvio": 9999999999.99, "porcentaje": 100, "descuento": 9999999999.99, "total": 9999999999.99 }
+]

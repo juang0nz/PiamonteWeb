@@ -207,6 +207,31 @@ y contemplar los bloqueos DDL; después probar permisos efectivos, inicializaci�
 de comercios, auditoría y reintentos concurrentes. No se consulta ni cambia el
 vínculo de Supabase para preparar esta etapa.
 
+### PIA-4, etapa 2: contrato monetario puro, sin integración
+
+[`calcularDescuentoPorcentual`](../src/lib/comercio/descuentos.ts) recibe
+`{ subtotal, costoEnvio, porcentaje }` y devuelve `{ subtotal, descuento, costoEnvio, total }`
+en UYU. No consulta datos ni modifica pedidos o configuración. Acepta importes
+numéricos finitos entre 0 y 9999999999,99, con hasta dos decimales, y porcentaje
+entero 0–100. Rechaza entradas inválidas y total fuera de rango con `RangeError`,
+sin redondear importes de entrada ni sustituirlos silenciosamente por cero.
+
+Convierte la representación decimal a centésimos y usa `BigInt` para todas las
+operaciones monetarias. El descuento en centésimos es
+`(subtotalCentimos * porcentaje + 50) / 100` con división entera: redondeo único
+sobre todo el subtotal, con mitades hacia arriba. El total se obtiene restando
+el descuento y sumando el envío intacto. Permite subtotal cero y total cero;
+no impone aquí las reglas de existencia o cantidad de productos de un pedido.
+Solo convierte a `number` en UYU al devolver el resultado; todos los centésimos
+admitidos caben en el rango entero seguro.
+
+Los [casos de referencia](../tests/fixtures/descuentos-porcentuales.json) tienen
+entradas y resultados explícitos para contrastar con el futuro cálculo SQL
+`round(subtotal * porcentaje / 100, 2)` usando `numeric`. Las
+[pruebas](../tests/descuentos.test.mjs) los ejecutan sin dependencias externas.
+No guardar ni aplicar estos resultados hasta implementar las etapas siguientes;
+la migración de etapa 1 continúa preparada y sin aplicar.
+
 ### Nota sobre el historial de producción
 
 Al ejecutar `supabase db pull` en PIA-1, la CLI (v2.121.0) detectó que corría sin terminal
