@@ -43,6 +43,22 @@ test("PIA-4 registro: conserva los 12 argumentos y recrea solo el resultado con 
   assert.match(compacto, /security definer set search_path to 'pg_catalog', 'public'/);
 });
 
+test("PIA-4 integración: el servidor envía los mismos 12 argumentos y no envía descuentos a SQL", () => {
+  const registrar = fs.readFileSync(new URL("../src/lib/pedidos/registrar.ts", import.meta.url), "utf8");
+  const contrato = rpc.split("returns table")[0];
+  const argumentosSql = [...contrato.matchAll(/\b(p_\w+)\s+(?:uuid|text|numeric|jsonb)/g)].map(coincidencia => coincidencia[1]).sort();
+  const llamada = registrar.split('"registrar_pedido_desde_checkout",')[1].split("p_items:")[0];
+  const argumentosServidor = [...llamada.matchAll(/\b(p_\w+):/g)].map(coincidencia => coincidencia[1]);
+  argumentosServidor.push("p_items");
+  assert.equal(argumentosSql.length, 12);
+  assert.deepEqual(argumentosServidor.sort(), argumentosSql);
+  assert.doesNotMatch(contrato, /\bp_(?:descuento|porcentaje|promocion_id)\b/);
+  const resultado = rpc.split("returns table")[1].split("language plpgsql")[0];
+  for (const campo of ["promocion_id uuid", "promocion_nombre text", "promocion_porcentaje numeric"]) {
+    assert.ok(resultado.includes(campo));
+  }
+});
+
 test("PIA-4 registro: configuración transaccional bloqueada, cálculo exacto y retorno de fila guardada", () => {
   assert.match(compacto, /p\.comercio_id = p_comercio_id and p\.clave = 'descuento_web' for share of p/);
   assert.match(compacto, /c\.id = p\.comercio_id and c\.activo = true/);
