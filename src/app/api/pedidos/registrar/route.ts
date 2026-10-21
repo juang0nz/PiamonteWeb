@@ -76,6 +76,7 @@ export async function POST(request: Request) {
     const resultado = await validarYRegistrarPedido(body as PedidoCheckoutInput);
     console.info("[api/pedidos/registrar] pedido registrado", {
       pedidoId: resultado.pedidoId,
+      importesConfirmados: resultado.total !== null,
     });
     return NextResponse.json(resultado, { status: 201 });
   } catch (error) {

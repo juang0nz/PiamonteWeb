@@ -1,6 +1,7 @@
 import { limitesGrupo } from "@/lib/catalogo/configurador";
 import { obtenerEstadoApertura } from "@/lib/comercio/horarios";
 import { validarCostoEnvio } from "@/lib/comercio/tiempos";
+import { calcularDescuentoPorcentual } from "@/lib/comercio/descuentos";
 import { validarDatosCheckout } from "@/lib/checkout/tipos";
 import { createClient } from "@/lib/supabase/server";
 import { createPrivateClient } from "@/lib/supabase/private";
@@ -11,7 +12,8 @@ import type {
   ItemPedidoInput,
   PedidoCalculado,
   PedidoCheckoutInput,
-  ResultadoRegistroPedido,
+  ResultadoRegistroServidor,
+  ResultadoRegistroPedidoConfirmado,
   MetodoPagoPedido,
 } from "./tipos";
 
@@ -62,7 +64,51 @@ type ReglaFila = {
   activo: boolean;
 };
 
-type RpcResultado = { pedido_id: string; pago_id?: string | null };
+function esRegistro(valor: unknown): valor is Record<string, unknown> {
+  return typeof valor === "object" && valor !== null && !Array.isArray(valor);
+}
+
+function numeroRpc(valor: unknown): number | null {
+  if (typeof valor !== "number" && (
+    typeof valor !== "string" || !/^\d+(?:\.\d{1,2})?$/.test(valor)
+  )) return null;
+  const numero = Number(valor);
+  return validarCostoEnvio(numero) ? null : numero;
+}
+
+function importesRpc(
+  fila: Record<string, unknown>,
+  subtotalEsperado: number,
+  envioEsperado: number,
+): Omit<ResultadoRegistroPedidoConfirmado, "pedidoId" | "numeroPedido"> | null {
+  const subtotal = numeroRpc(fila.subtotal);
+  const descuento = numeroRpc(fila.descuento);
+  const costoEnvio = numeroRpc(fila.costo_envio);
+  const total = numeroRpc(fila.total);
+  if (subtotal === null || subtotal <= 0 || descuento === null || costoEnvio === null || total === null ||
+    subtotal !== subtotalEsperado || costoEnvio !== envioEsperado) return null;
+
+  let promocion: ResultadoRegistroPedidoConfirmado["promocion"] = null;
+  if (fila.promocion_id !== null) {
+    const porcentaje = numeroRpc(fila.promocion_porcentaje);
+    if (typeof fila.promocion_id !== "string" || !fila.promocion_id.trim() ||
+      typeof fila.promocion_nombre !== "string" || !fila.promocion_nombre.trim() ||
+      fila.promocion_nombre.trim().length > 120 || porcentaje === null ||
+      !Number.isInteger(porcentaje) || porcentaje > 100) return null;
+    promocion = { id: fila.promocion_id, nombre: fila.promocion_nombre, porcentaje };
+  } else if (fila.promocion_nombre !== null || fila.promocion_porcentaje !== null) {
+    return null;
+  }
+  // La promoción ya fue resuelta en SQL; aquí se verifica la respuesta sin leer configuración nueva.
+  if (descuento > subtotal ||
+    BigInt(Math.round(subtotal * 100)) - BigInt(Math.round(descuento * 100)) +
+      BigInt(Math.round(costoEnvio * 100)) !== BigInt(Math.round(total * 100))) return null;
+  const esperado = calcularDescuentoPorcentual({
+    subtotal, costoEnvio: 0, porcentaje: promocion?.porcentaje ?? 0,
+  });
+  if (esperado.descuento !== descuento) return null;
+  return { subtotal, descuento, costoEnvio, total, promocion };
+}
 
 type ConfiguracionPedidoFila = {
   pedidos_pausados: boolean;
@@ -316,7 +362,7 @@ function validarYCalcularItem(params: {
 
 export async function validarYRegistrarPedido(
   input: PedidoCheckoutInput,
-): Promise<ResultadoRegistroPedido> {
+): Promise<ResultadoRegistroServidor> {
   let etapa = "inicio";
   console.info("[pedidos] etapa inicio");
   validarInputBasico(input);
@@ -545,8 +591,7 @@ export async function validarYRegistrarPedido(
   );
   const subtotal = subtotalCentimos / 100;
   const costoEnvio = costoEnvioCentimos / 100;
-  const total = (subtotalCentimos + costoEnvioCentimos) / 100;
-  if (subtotal <= 0 || validarCostoEnvio(subtotal) || validarCostoEnvio(total)) {
+  if (subtotal <= 0 || validarCostoEnvio(subtotal)) {
     fallar("Los importes del pedido superan el rango permitido o el subtotal no es positivo.", 409, "CONFLICTO_DATOS");
   }
 
@@ -554,7 +599,6 @@ export async function validarYRegistrarPedido(
     comercioId: comercio.id,
     subtotal,
     costoEnvio,
-    total,
     items: itemsCalculados,
   };
   const referenciasProgramacion = normalizarTexto(input.checkout.referencias, 220);
@@ -630,9 +674,17 @@ export async function validarYRegistrarPedido(
         "CONFLICTO_DATOS",
       );
     }
+    if (code === "22023" || code === "P0002") {
+      throw new PedidoError(
+        "No pudimos validar los importes o la promoción vigente del pedido. Revisá el pedido o consultá al local.",
+        409,
+        "CONFLICTO_DATOS",
+        { etapa, origen: "rpc:registrar_pedido_desde_checkout", code, message, details, hint },
+      );
+    }
     if (code === "PGRST202") {
       throw new PedidoError(
-        "Falta aplicar la migración de PIA-3 para registrar pedidos con medios de pago y costo de envío.",
+        "Falta aplicar el contrato de registro de PIA-4 y sus migraciones previas en Supabase.",
         501,
         "REQUIERE_RPC",
         {
@@ -660,39 +712,32 @@ export async function validarYRegistrarPedido(
     );
   }
 
-  const fila = Array.isArray(rpcData) ? (rpcData[0] as RpcResultado | undefined) : undefined;
-  if (!fila?.pedido_id) {
+  const fila: unknown = Array.isArray(rpcData) ? rpcData[0] : undefined;
+  if (!esRegistro(fila) || typeof fila.pedido_id !== "string" || !fila.pedido_id.trim()) {
     console.error("[pedidos] rpc sin pedido_id en respuesta", {
       tipoData: Array.isArray(rpcData) ? "array" : typeof rpcData,
       largoArray: Array.isArray(rpcData) ? rpcData.length : null,
     });
     throw new PedidoError(
-      "El servidor no devolvió el identificador del pedido creado.",
+      "El servidor no devolvió el identificador del pedido. Consultá al local antes de volver a enviarlo.",
       500,
       "BASE_DATOS",
     );
   }
   console.info("[pedidos] pedido_id devuelto por rpc", { pedidoId: fila.pedido_id });
-  // Número correlativo visible en el panel del local; es el que se le muestra al cliente.
-  // Si la consulta falla, el pedido ya quedó registrado, así que no se interrumpe el flujo.
-  const { data: pedidoCreado, error: errorNumero } = await supabasePrivado
-    .from("pedidos")
-    .select("numero")
-    .eq("id", fila.pedido_id)
-    .maybeSingle();
-  if (errorNumero) {
-    console.error("[pedidos] no se pudo obtener el número del pedido", {
-      code: errorNumero.code,
-      message: errorNumero.message,
-    });
+  const numero = typeof fila.numero_pedido === "number" || typeof fila.numero_pedido === "string"
+    ? Number(fila.numero_pedido) : NaN;
+  const numeroPedido = Number.isSafeInteger(numero) && numero > 0 ? numero : null;
+  if (numeroPedido === null) console.error("[pedidos] RPC sin número de pedido válido");
+  const importes = Array.isArray(rpcData) && rpcData.length === 1 ? importesRpc(fila, subtotal, costoEnvio) : null;
+  if (!importes) {
+    console.error("[pedidos] pedido registrado con respuesta monetaria inválida", { pedidoId: fila.pedido_id });
+    return {
+      pedidoId: fila.pedido_id, numeroPedido,
+      subtotal: null, descuento: null, costoEnvio: null, total: null, promocion: null,
+      code: "IMPORTES_NO_CONFIRMADOS",
+      advertencia: "El pedido fue registrado, pero no pudimos confirmar sus importes. Consultá al local antes de volver a pedir.",
+    };
   }
-
-  return {
-    pedidoId: fila.pedido_id,
-    numeroPedido:
-      typeof pedidoCreado?.numero === "number" ? pedidoCreado.numero : null,
-    subtotal,
-    costoEnvio,
-    total,
-  };
+  return { pedidoId: fila.pedido_id, numeroPedido, ...importes };
 }

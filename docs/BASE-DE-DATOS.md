@@ -232,6 +232,88 @@ entradas y resultados explícitos para contrastar con el futuro cálculo SQL
 No guardar ni aplicar estos resultados hasta implementar las etapas siguientes;
 la migración de etapa 1 continúa preparada y sin aplicar.
 
+### PIA-4, etapa 3: registro transaccional del descuento, sin aplicar
+
+La nueva migración
+[`20261021024000_descuento_pedidos.sql`](../supabase/migrations/20261021024000_descuento_pedidos.sql)
+requiere PIA-3 y la migración de promociones de etapa 1, que tampoco fue aplicada
+durante esta tarea. **Ambas quedan preparadas, no se ejecutó SQL remoto ni se
+modificó el vínculo de Supabase.** La migración de etapa 3 no es reejecutable.
+
+Agrega a `pedidos`:
+
+- `descuento numeric(12,2) NOT NULL DEFAULT 0`.
+- `promocion_id uuid`, `promocion_nombre text` y `promocion_porcentaje numeric`
+  (instantánea, inicialmente `NULL`).
+- FK compuesta `(comercio_id, promocion_id)` hacia promociones, con `RESTRICT`;
+  una clave única adicional en promociones permite exigir pertenencia al mismo
+  comercio. No se permite borrar una promoción referenciada por pedidos.
+- Checks de descuento no negativo y no mayor al subtotal, porcentaje entero
+  0–100, instantánea completa o ausente y coherencia con el descuento redondeado.
+- Nueva igualdad `total = subtotal - descuento + costo_envio`, sin admitir `NaN`.
+
+No actualiza ni elimina pedidos existentes: el descuento inicial cero conserva
+todos los importes y datos previos. La instantánea no depende del valor o nombre
+actual de la promoción ni se recalcula al editarla. Los ítems, variantes y
+adicionales mantienen sus importes brutos; todo su subtotal es elegible.
+
+**RPC:** `registrar_pedido_desde_checkout` conserva exactamente sus 12 parámetros
+de entrada, sin parámetros de descuento provenientes del navegador. Lee
+`descuento_web` del comercio activo y bloquea esa fila `FOR SHARE` durante el
+registro, incluso cuando está desactivada. Las actualizaciones administrativas
+concurrentes se serializan respecto de ese bloqueo. Si falta la configuración,
+falla explícitamente; no inventa un descuento cero por error de lectura.
+
+Si está activa, guarda su ID/nombre/porcentaje (también para 0 %) y calcula
+`round(p_subtotal * v_porcentaje / 100, 2)` usando `numeric`. Solo luego suma el
+envío. Si está inactiva guarda descuento cero y sin instantánea. Acepta total cero,
+pero conserva subtotal positivo, modalidades, medios de pago, retiro sin envío,
+estados iniciales, número automático, inserción atómica y trigger de disponibilidad
+de PIA-3. El límite de total se valida después del descuento, no sobre la suma bruta.
+
+El resultado ahora contiene `pedido_id`, `pago_id` (siempre `NULL`),
+`numero_pedido`, `subtotal`, `descuento`, `costo_envio`, `total`,
+`promocion_id`, `promocion_nombre`, `promocion_porcentaje`: se obtiene de la fila
+realmente insertada. El servidor devuelve `pedidoId`, `numeroPedido`, `subtotal`,
+`descuento`, `costoEnvio`, `total` y `promocion` (objeto con ID/nombre/porcentaje o
+`null`). Contrasta la aritmética y los importes brutos con el pedido recalculado,
+sin consultar una configuración posterior ni sustituir el total por una estimación.
+
+El cambio de resultado obliga a recrear la RPC: se usa `DROP FUNCTION ... RESTRICT`
+en la misma transacción, sin `CASCADE`. Se restauran dueño `postgres`,
+`SECURITY DEFINER`, `search_path` fijo y `EXECUTE` solo para `postgres`/`service_role`.
+La cadena versionada no registra dependencias SQL sobre esta RPC. Si el entorno
+tiene dependencias adicionales, `RESTRICT` abortará sin eliminarlas; revisarlas
+antes de autorizar la aplicación. No se alteran permisos ni funciones de auditoría
+administrativa en esta etapa.
+
+Si la RPC devuelve un ID pero sus importes son inválidos, el endpoint conserva
+el pedido creado con HTTP 201, `code: IMPORTES_NO_CONFIRMADOS`, advertencia y
+todos los importes en `null`, con error explícito en logs. No vuelve a ejecutar
+la RPC ni inventa importes. Sin ID válido informa error y aconseja consultar al
+local antes de reenviar. Esto no agrega idempotencia al registro de pedidos.
+
+**Incompatibilidad pendiente:** carrito, checkout y panel administrativo NO se
+modificaron. El checkout aún exige `total = subtotal + costoEnvio` y total positivo:
+un descuento efectivo o total cero activa su aviso de importes no confirmados
+(conserva el ID y vacía el carrito, sin ofrecer duplicarlo). Todavía no muestra
+descuentos ni instantáneas, y el detalle administrativo no explica esa reducción.
+No habilitar comercialmente la promoción ni desplegar como funcionalidad completa
+hasta integrar las interfaces. La promoción inicial sigue desactivada.
+
+Pruebas enfocadas: `node --test tests/registro-pagos.test.mjs
+tests/descuento-pedidos-sql.test.mjs`. Incluyen contrato estático y respuestas
+del registro con dobles. La suite SQL admite además PostgreSQL embebido en memoria:
+`PIA_POSTGRES_TEST_MODULE` debe apuntar al módulo local `dist/index.js` de PGlite,
+instalado fuera del repositorio (validación realizada con 0.5.10). Sin esa variable,
+solo se omite el bloque de integración y se indica explícitamente en el runner.
+No es una dependencia de la aplicación ni requiere credenciales.
+El bloque ejecuta las migraciones de promociones y pedidos en un esquema aislado
+de prueba, compara los 15 vectores SQL/TypeScript, prueba la RPC, históricos,
+snapshot, límites, permisos y atomicidad. No sustituye validar en desarrollo
+los triggers de disponibilidad reales, RLS, dependencias adicionales y concurrencia
+entre conexiones, después de una aplicación autorizada.
+
 ### Nota sobre el historial de producción
 
 Al ejecutar `supabase db pull` en PIA-1, la CLI (v2.121.0) detectó que corría sin terminal
