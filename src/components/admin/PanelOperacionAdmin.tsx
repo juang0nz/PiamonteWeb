@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ConfiguracionDescuentoWeb } from "./ConfiguracionDescuentoWeb";
 import {
   CLAVES_RANGOS,
   MINUTOS_MAXIMOS,
@@ -234,6 +235,7 @@ export function PanelOperacionAdmin() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
+        <ConfiguracionDescuentoWeb />
         {/* Demanda */}
         <section className="space-y-4 rounded-3xl border border-negro/10 bg-white p-5 shadow-[0_20px_45px_rgba(0,0,0,0.08)]">
           <div>

@@ -145,6 +145,40 @@ Verificación enfocada: `node --test tests/operacion.test.mjs`. Incluye validaci
 monetaria, roles, filtro por comercio, contrato auditado, errores de migración y
 eventos del panel con dobles de hooks/fetch, sin conexiones remotas.
 
+### Descuento web configurable (PIA-4, etapa 4)
+
+Operación incluye una sección **Descuento web**, con carga y guardado independientes
+de demanda, pausa, tiempos y delivery. Muestra el porcentaje y estado guardados,
+un porcentaje entero entre 0 y 100 y una casilla **Activar descuento web**. Cambiar
+los controles no aplica nada hasta **Guardar descuento web**; desactivar conserva
+el porcentaje para un uso posterior.
+
+- Acceso de edición: `owner`, `admin` o super admin del comercio; empleados sin
+  autorización, tanto en el endpoint como en las RPC SQL.
+- `GET /api/admin/operacion/descuento-web` consulta `admin_obtener_descuento_web`;
+  `PATCH` guarda mediante `admin_actualizar_descuento_web`, con el cliente de sesión
+  e identificador de operación para preservar autorización y auditoría.
+- Solo se envían `activa` y `valor`. El comercio se resuelve desde el acceso
+  administrativo, no desde el navegador. La respuesta expone solo esos dos campos.
+- Durante el guardado se deshabilitan controles y se impide un envío duplicado.
+  Se confirma el estado devuelto por la RPC; ante un error se conserva el borrador
+  y un reintento del mismo cambio conserva su identificador de operación.
+- Vacíos, negativos, fracciones, exponentes y valores mayores a 100 se rechazan
+  en la interfaz; la API exige porcentaje numérico entero y estado booleano.
+- Las migraciones de PIA-4 **siguen sin aplicar**. Ante su ausencia se informa el
+  error y se ofrece reintentar, sin fingir configuración al 0 % ni crear registros
+  desde el panel. La migración inicial es la que define desactivado y 0 %.
+
+La sección advierte que no debe activarse comercialmente hasta completar carrito
+y checkout, incluida la confirmación de total cero. El 100 % afecta solo productos,
+variantes y adicionales; el envío no se descuenta. Esta etapa no modifica precios,
+pedidos históricos, interfaces de compra ni migraciones.
+
+Pruebas: `node --test tests/admin-descuento-web.test.mjs tests/operacion.test.mjs`.
+Cubren validaciones, permisos, RPC auditada y eventos de interfaz con dobles locales,
+sin SQL remoto. La comprobación contra Supabase queda pendiente de una aplicación
+autorizada de las migraciones en desarrollo.
+
 ## Desarrollo y verificación
 
 ### Registro de pedidos y pagos en servidor (PIA-3, etapa 3)

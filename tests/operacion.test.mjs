@@ -322,6 +322,7 @@ async function cargarPanelDelivery(responderGuardado) {
   const jsx = (type, props) => ({ type, props });
   const fila = { ...tiempos.CONFIGURACION_INICIAL, costo_envio: 25.5 };
   const panel = cargar("src/components/admin/PanelOperacionAdmin.tsx", {
+    "./ConfiguracionDescuentoWeb": { ConfiguracionDescuentoWeb: () => null },
     react: {
       useState: inicial => {
         const posicion = indice++;
