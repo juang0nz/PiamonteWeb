@@ -324,15 +324,18 @@ test("La página entrega la tarifa al checkout y conserva el error de tarifa com
   }
 });
 
-test("Checkout estima 0 %, 10 % y 100 % en delivery y retiro sin descontar el envío", () => {
-  for (const porcentaje of [0, 10, 100]) {
+test("Checkout oculta descuento inactivo o 0 % y conserva importes en delivery y retiro", () => {
+  for (const porcentaje of [null, 0, 10, 100]) {
     for (const tipoEntrega of ["delivery", "retiro"]) {
       const ui = pantalla({
         datosIniciales: { ...datosBase, tipoEntrega, metodoPago: tipoEntrega === "retiro" ? "pago_en_local" : "efectivo" },
-        promocion: { estado: "conocido", promocion: { nombre: "Descuento web", porcentaje } },
+        promocion: { estado: "conocido", promocion: porcentaje === null ? null : { nombre: "Descuento web", porcentaje } },
       });
       const vista = texto(ui.render());
-      assert.match(vista, new RegExp(`Descuento web\\s+\\(${porcentaje} %\\)`));
+      if (porcentaje === null || porcentaje === 0) {
+        assert.equal(nodos(ui.render(), nodo => nodo.type === "span" && /^Descuento web/.test(texto(nodo))).length, 0);
+        assert.doesNotMatch(vista, /−\$/);
+      } else assert.match(vista, new RegExp(`Descuento web\\s+\\(${porcentaje} %\\)`));
       const envio = tipoEntrega === "retiro" ? 0 : 25.5;
       assert.ok(vista.includes(formato.formatearImporteUYU(100 - porcentaje + envio)));
       assert.match(vista, /Subtotal con descuento/);
@@ -355,7 +358,7 @@ test("Descuento desconocido no equivale a desactivado y bloquea el registro", as
 });
 
 test("Confirmación usa la promoción realmente registrada aunque cambie o se desactive durante la compra", async () => {
-  for (const [estimado, aplicado] of [[10, 25], [10, null], [null, 10], [10, 100], [100, 0]]) {
+  for (const [estimado, aplicado] of [[10, 25], [10, null], [null, 10], [10, 100], [100, 0], [10, 1]]) {
     for (const tipoEntrega of ["delivery", "retiro"]) {
       const costoEnvio = tipoEntrega === "retiro" ? 0 : 30.1;
       const promo = aplicado === null ? null : { id: "promo", nombre: "Descuento web", porcentaje: aplicado };
@@ -376,7 +379,10 @@ test("Confirmación usa la promoción realmente registrada aunque cambie o se de
       assert.equal(ui.solicitudes[0].descuento, undefined);
       assert.equal(ui.solicitudes[0].promocion, undefined);
       assert.equal(ui.solicitudes[0].porcentaje, undefined);
-      if (aplicado !== null) assert.match(vista, new RegExp(`Descuento web\\s+\\(${aplicado} %\\)`));
+      if (aplicado === null || aplicado === 0) {
+        assert.equal(nodos(ui.render(), nodo => nodo.type === "dt" && /^Descuento web/.test(texto(nodo))).length, 0);
+        assert.doesNotMatch(vista, /−\$/);
+      } else assert.match(vista, new RegExp(`Descuento web\\s+\\(${aplicado} %\\)`));
     }
   }
 });

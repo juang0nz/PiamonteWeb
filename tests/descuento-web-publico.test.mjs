@@ -143,12 +143,17 @@ test("Carrito distingue desactivado, activo al 0 % y lectura desconocida sin sim
   const { store, contenido } = carrito();
   store.agregarItem({ ...item, precioUnitario: 100 });
   for (const porcentaje of [null, 0, 10, 100]) {
-    const vista = texto(contenido.ContenidoCarrito({ descuentoWeb: conocido(porcentaje) }));
+    const arbol = contenido.ContenidoCarrito({ descuentoWeb: conocido(porcentaje) });
+    const vista = texto(arbol);
     assert.match(vista, /Subtotal de productos/);
     assert.match(vista, /Subtotal con descuento/);
     assert.match(vista, /Envío Por confirmar/);
     if (porcentaje === null) assert.match(vista, /Descuento web desactivado/);
-    else assert.match(vista, new RegExp(`Descuento web\\s+\\(${porcentaje} %\\)`));
+    if (porcentaje === null || porcentaje === 0) {
+      assert.equal(nodos(arbol, nodo => nodo.type === "span" && /^Descuento web/.test(texto(nodo))).length, 0);
+      assert.doesNotMatch(vista, /−\$/);
+      assert.ok(vista.includes(formato.formatearImporteUYU(100)));
+    } else assert.match(vista, new RegExp(`Descuento web\\s+\\(${porcentaje} %\\)`));
   }
   const desconocida = texto(contenido.ContenidoCarrito({ descuentoWeb: { estado: "desconocido" } }));
   assert.match(desconocida, /No pudimos consultar el descuento web/);

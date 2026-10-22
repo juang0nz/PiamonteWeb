@@ -508,7 +508,7 @@ export function PanelPedidosAdmin({
                     <button
                       type="button"
                       onClick={() => setPedidoSeleccionadoId(pedido.id)}
-                      className="mt-4 text-sm font-semibold text-rojo hover:underline"
+                      className="mt-4 cursor-pointer text-sm font-semibold text-rojo hover:underline"
                     >
                       Ver detalle
                     </button>

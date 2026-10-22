@@ -173,6 +173,7 @@ async function panel({ leer = () => ({ ok: true, json: async () => ({ descuentoW
 
 test("Interfaz carga desactivado al 0%, guarda 0/10/100 y permite desactivar sin perder porcentaje", async () => {
   const vista = await panel();
+  assert.equal(vista.buscar(n => typeof n.props?.children === "string" && n.props.children.includes("PIA-4 en integración")).length, 0);
   assert.equal(vista.buscar(n => n.type === "input" && n.props.type === "text")[0].props.value, "0");
   assert.equal(vista.buscar(n => n.type === "input" && n.props.type === "checkbox")[0].props.checked, false);
   for (const valor of [0, 10, 100]) {

@@ -28,10 +28,12 @@ export function ResumenImportes({
   return (
     <div className="space-y-2 text-sm text-negro">
       <p className="flex justify-between gap-3"><span>Subtotal de productos</span><span>{formatearImporteUYU(subtotal)}</span></p>
-      <p className="flex justify-between gap-3">
-        <span>Descuento web{porcentaje !== undefined ? ` (${porcentaje} %)` : ""}</span>
-        <span>{productos ? `−${formatearImporteUYU(productos.descuento)}` : "Por confirmar"}</span>
-      </p>
+      {(descuentoWeb.estado === "desconocido" || (porcentaje !== undefined && porcentaje > 0)) && (
+        <p className="flex justify-between gap-3">
+          <span>Descuento web{porcentaje !== undefined ? ` (${porcentaje} %)` : ""}</span>
+          <span>{productos ? `−${formatearImporteUYU(productos.descuento)}` : "Por confirmar"}</span>
+        </p>
+      )}
       {descuentoWeb.estado === "conocido" && !descuentoWeb.promocion && (
         <p className="text-xs text-negro/60">Descuento web desactivado.</p>
       )}

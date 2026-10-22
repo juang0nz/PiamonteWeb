@@ -203,7 +203,9 @@ export function PantallaCheckout({
           {importesConfirmados && (
             <dl className="mx-auto mt-5 max-w-sm space-y-2 rounded-2xl bg-white p-4 text-sm">
               <div className="flex justify-between"><dt>Subtotal</dt><dd>{formatearImporteUYU(importesConfirmados.subtotal)}</dd></div>
-              <div className="flex justify-between"><dt>Descuento web{importesConfirmados.promocion ? ` (${importesConfirmados.promocion.porcentaje} %)` : ""}</dt><dd>−{formatearImporteUYU(importesConfirmados.descuento)}</dd></div>
+              {importesConfirmados.promocion && importesConfirmados.promocion.porcentaje > 0 && (
+                <div className="flex justify-between"><dt>Descuento web{` (${importesConfirmados.promocion.porcentaje} %)`}</dt><dd>−{formatearImporteUYU(importesConfirmados.descuento)}</dd></div>
+              )}
               <div className="flex justify-between"><dt>Envío</dt><dd>{formatearImporteUYU(importesConfirmados.costoEnvio)}</dd></div>
               <div className="flex justify-between font-semibold"><dt>Total confirmado</dt><dd>{formatearImporteUYU(importesConfirmados.total)}</dd></div>
             </dl>
