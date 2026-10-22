@@ -145,6 +145,175 @@ Verificación enfocada: `node --test tests/operacion.test.mjs`. Incluye validaci
 monetaria, roles, filtro por comercio, contrato auditado, errores de migración y
 eventos del panel con dobles de hooks/fetch, sin conexiones remotas.
 
+### Descuento web configurable (PIA-4, etapa 4)
+
+Operación incluye una sección **Descuento web**, con carga y guardado independientes
+de demanda, pausa, tiempos y delivery. Muestra el porcentaje y estado guardados,
+un porcentaje entero entre 0 y 100 y una casilla **Activar descuento web**. Cambiar
+los controles no aplica nada hasta **Guardar descuento web**; desactivar conserva
+el porcentaje para un uso posterior.
+
+- Acceso de edición: `owner`, `admin` o super admin del comercio; empleados sin
+  autorización, tanto en el endpoint como en las RPC SQL.
+- `GET /api/admin/operacion/descuento-web` consulta `admin_obtener_descuento_web`;
+  `PATCH` guarda mediante `admin_actualizar_descuento_web`, con el cliente de sesión
+  e identificador de operación para preservar autorización y auditoría.
+- Solo se envían `activa` y `valor`. El comercio se resuelve desde el acceso
+  administrativo, no desde el navegador. La respuesta expone solo esos dos campos.
+- Durante el guardado se deshabilitan controles y se impide un envío duplicado.
+  Se confirma el estado devuelto por la RPC; ante un error se conserva el borrador
+  y un reintento del mismo cambio conserva su identificador de operación.
+- Vacíos, negativos, fracciones, exponentes y valores mayores a 100 se rechazan
+  en la interfaz; la API exige porcentaje numérico entero y estado booleano.
+- Las migraciones de PIA-4 **siguen sin aplicar**. Ante su ausencia se informa el
+  error y se ofrece reintentar, sin fingir configuración al 0 % ni crear registros
+  desde el panel. La migración inicial es la que define desactivado y 0 %.
+
+La sección advierte que debe verificarse la integración y las migraciones en
+desarrollo antes de activarlo comercialmente. El 100 % afecta solo productos,
+variantes y adicionales; el envío no se descuenta. Esta etapa no modifica precios,
+pedidos históricos, interfaces de compra ni migraciones.
+
+Pruebas: `node --test tests/admin-descuento-web.test.mjs tests/operacion.test.mjs`.
+Cubren validaciones, permisos, RPC auditada y eventos de interfaz con dobles locales,
+sin SQL remoto. La comprobación contra Supabase queda pendiente de una aplicación
+autorizada de las migraciones en desarrollo.
+
+### Descuento web en carrito, checkout y confirmación (PIA-4, etapa 5)
+
+- Catálogo y checkout consultan `obtener_descuento_web` con el cliente público de
+  sesión, sin acceso directo a promociones ni campos administrativos. Una lista
+  vacía indica descuento desactivado; un error o respuesta inválida indica
+  configuración desconocida, **no descuento cero**. Mientras sea desconocida,
+  checkout muestra el error y bloquea la confirmación hasta recargar.
+- El carrito de escritorio y el diálogo móvil comparten el desglose de subtotal
+  bruto de productos, descuento y subtotal con descuento. El envío y total
+  quedan **Por confirmar** porque todavía no se eligió modalidad.
+- Checkout usa `calcularDescuentoPorcentual` para la estimación: porcentaje entero
+  0–100 sobre el subtotal completo, redondeo único a centésimos con mitades hacia
+  arriba, envío intacto y `total = subtotal - descuento + costoEnvio`.
+  Retiro usa envío cero y admite total cero con 100 %. Delivery conserva efectivo
+  y tarjeta POS; retiro conserva pago en el local.
+- Los subtotales del carrito se acumulan en centésimos. Cambiar cantidades o quitar
+  productos recalcula el descuento sobre el subtotal, no por unidad. Variantes,
+  adicionales y productos de Promos no se excluyen.
+- La configuración visual es una instantánea, sin persistir porcentajes ni
+  descuentos en el navegador. El refresco existente del catálogo vuelve a leerla;
+  el servidor y la RPC resuelven siempre los valores vigentes al registrar.
+  El payload no incluye importes, porcentajes ni identificadores de promociones.
+- La confirmación valida la instantánea devuelta y muestra subtotal, descuento,
+  envío y total realmente registrados, aunque cambien tarifa o promoción durante
+  la compra. No acepta importes negativos, fuera de rango, fracciones de centésimo,
+  porcentajes inválidos ni fórmulas inconsistentes. No compara contra la promoción
+  estimada. Si el pedido existe pero sus importes no se pueden confirmar, avisa sin
+  mostrar un total ficticio ni ofrecer otro envío del mismo carrito.
+- El pedido sigue pendiente de confirmación manual del local. No se cambian
+  notificaciones. La etapa 6 incorpora el desglose administrativo descrito abajo.
+
+Pruebas enfocadas:
+`node --test tests/checkout-pagos.test.mjs tests/descuento-web-publico.test.mjs tests/descuentos.test.mjs`.
+Incluyen 0 %, 10 %, 100 %, delivery/retiro, cantidades, redondeos, ausencia de
+migración, cambios de configuración y respuestas manipuladas mediante dobles
+locales. También se verificó la aplicación compilada en navegador con un servicio
+HTTP simulado local y respuestas de registro interceptadas: carrito a 1440 px,
+diálogo móvil a 375 px, checkout a 320 px sin desborde horizontal, POS con cambio
+de porcentaje al confirmar, retiro al 100 %, lectura fallida y respuesta monetaria
+inconsistente. El doble no implementa Realtime ni ejecuta SQL.
+Las migraciones siguen sin aplicar; la prueba funcional contra Supabase
+de desarrollo requiere autorización y no se reemplaza por estas pruebas.
+
+### Descuento guardado en administración (PIA-4, etapa 6)
+
+El detalle de pedidos muestra **Subtotal bruto de productos / Descuento aplicado /
+Envío / Total confirmado**, con centésimos y moneda UYU. Si existe promoción, muestra
+el nombre y porcentaje guardados en el pedido, incluidos 0 % y 100 %, y la aclaración
+de que son las condiciones del registro. No consulta la configuración actual ni
+recalcula pedidos al editar o desactivar una promoción.
+
+`GET /api/admin/pedidos` agrega `descuento` y `promocion`:
+`{ id, nombre, porcentaje } | null`, leyendo exclusivamente `descuento`,
+`promocion_id`, `promocion_nombre` y `promocion_porcentaje` de `pedidos`.
+Los `numeric` se convierten a números en la respuesta. Tras la migración, los
+históricos conservan subtotal/envío/total y muestran descuento cero y **Sin
+promoción aplicada**. La tarjeta conserva su total registrado, incluso cero.
+Delivery conserva el envío completo; retiro tiene envío cero.
+
+Se mantienen autorización y filtro por comercio para owner, admin, super admin y
+empleado; este último sigue sin poder configurar promociones. No se modifican
+transiciones, confirmación manual, tiempos congelados, cancelación, sonido,
+Realtime, marca Visto ni aviso Llevar POS. Si faltan columnas por migración
+pendiente, la API informa 503, sin hacer una segunda consulta al esquema anterior.
+
+Regresiones:
+`node --test tests/admin-pagos.test.mjs tests/descuento-pedidos-sql.test.mjs tests/registro-pagos.test.mjs tests/whatsapp-pedidos.test.mjs`.
+Prueban históricos, instantáneas, 0/10/100 %, total cero, envío, roles y aislamiento,
+contrato de 12 argumentos y conservación de notificaciones y aceptación.
+El bloque opcional PostgreSQL embebido requiere `PIA_POSTGRES_TEST_MODULE`; sin
+él se omite explícitamente, no equivale a una prueba SQL ejecutada.
+
+### Validación propuesta de PIA-4 solo en piamonte-dev (no ejecutada)
+
+**Estado al 2026-10-21:** etapas 1–6 implementadas y verificadas localmente.
+Ambas migraciones de PIA-4 siguen sin aplicar. No hay validación funcional remota
+ni autorización de despliegue a producción. Este procedimiento requiere revisión
+y autorización explícita antes de cualquier acción sobre Supabase:
+
+1. **Confirmar el entorno sin cambiar vínculos.** Una persona autorizada comprueba
+   en el dashboard que el proyecto es `piamonte-dev`, ref
+   `waezhdcznpzercgqyiaf`, y que la aplicación de prueba y sus variables apuntan
+   exclusivamente a él. Si el vínculo local no coincide, detenerse, no relinkear
+   automáticamente. No usar producción, datos reales ni credenciales en logs.
+2. **Prevalidar y respaldar.** Revisar el historial aplicado hasta PIA-3, guardar
+   respaldo/exportación de desarrollo y registrar importes/estados de pedidos
+   históricos para compararlos después. Revisar dependencias reales de la RPC de
+   registro y su ACL, funciones de auditoría y disponibilidad; comprobar que los
+   históricos satisfacen los nuevos checks, sin borrar ni corregir datos a ciegas.
+   Detenerse ante drift, dependencias inesperadas o importes incompatibles.
+3. **Aplicación manual autorizada, en orden.** Revisar la lista exacta de cambios y
+   aplicar únicamente `20261020180500_promociones_automaticas.sql` y luego
+   `20261021024000_descuento_pedidos.sql` con el mecanismo auditado del repositorio,
+   exclusivamente en desarrollo. No ejecutar scripts de `supabase/pendientes/`.
+   No usar reset, `CASCADE`, reparar historial ni reejecutar migraciones aplicadas.
+   Si la segunda falla, registrar que la primera puede estar aplicada y detenerse.
+   Verificar que PostgREST reconoce la nueva RPC y sus columnas antes de abrir
+   pedidos de prueba.
+4. **Inicialización, roles y auditoría.** Verificar una promoción por comercio,
+   desactivada al 0 %. Lectura pública: lista vacía desactivada, solo nombre/valor
+   activa y sin metadatos administrativos. Owner/admin/super admin pueden editar;
+   empleado no puede, aunque sí consultar pedidos de su comercio. Probar sesión
+   ausente, acceso ajeno, porcentajes negativos/fraccionarios/>100, reintento del
+   mismo identificador sin duplicar auditoría y aislamiento entre comercios.
+   Verificar también inicialización de un comercio nuevo de prueba.
+5. **Matriz funcional.** Con productos de prueba (incluidos categoría Promos,
+   variantes y adicionales), probar desactivada, activa al 0 %, 10 % y 100 %, con
+   delivery efectivo, delivery POS y retiro. Comparar carrito, checkout, respuesta
+   de registro y detalle administrativo. Envío siempre intacto; retiro con 100 %
+   termina en cero. Probar cantidades y subtotal de $0,15 al 10 %: descuento $0,02.
+   Antes de conocer modalidad/tarifa no debe presentarse envío gratis.
+6. **Vigencia e históricos.** Abrir checkout al 10 %, cambiar al 25 % desde otra
+   sesión y confirmar: respuesta y administración deben mostrar el 25 % realmente
+   registrado. Luego cambiar/desactivar la promoción y verificar que el pedido
+   anterior conserva nombre, porcentaje e importes. Comparar los históricos del
+   respaldo: descuento cero, instantánea nula, importes y estados sin cambios.
+   Una lectura fallida debe mostrar configuración desconocida, no cero.
+7. **Regresiones operativas.** Comprobar pausa/cierre, producto o variante agotada,
+   selección de pago y aceptación manual; pedido nuevo sin revisar, sonido único,
+   marca Visto, aviso Llevar POS y reconexión Realtime. Probar edición concurrente
+   de promoción y registro entre sesiones, sin atribuir esa cobertura a los mocks.
+   Revisar en móvil y escritorio. Si el registro devuelve ID pero importes
+   inválidos, consultar el pedido existente: no reenviarlo.
+8. **Cerrar evidencia y desactivar.** Registrar IDs de prueba, roles, valores,
+   resultados y advertencias sin secretos. Dejar el descuento desactivado al 0 %
+   mediante Operación (auditado), conservar pedidos de prueba para trazabilidad y
+   no modificar el vínculo. La evidencia de desarrollo no autoriza producción:
+   requiere revisión de dependencias, respaldo y un plan de release independiente.
+
+Riesgos pendientes: entorno real y dependencias no inspeccionados, bloqueos DDL,
+permisos/RLS efectivos, actualización del caché de esquema y concurrencia entre
+conexiones. El registro no agrega idempotencia de pedidos; una pérdida de respuesta
+tras el alta requiere consultar al local antes de reenviar. PIA-9 sigue fuera de
+alcance: sin cupones, vigencias, prioridades, límites de uso ni otros alcances.
+
 ## Desarrollo y verificación
 
 ### Registro de pedidos y pagos en servidor (PIA-3, etapa 3)

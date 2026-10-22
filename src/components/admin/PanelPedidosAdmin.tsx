@@ -39,6 +39,12 @@ type PedidoAdmin = {
   estado: string;
   metodoPago: string;
   subtotal: number;
+  descuento: number;
+  promocion: {
+    id: string;
+    nombre: string;
+    porcentaje: number;
+  } | null;
   costoEnvio: number;
   total: number;
   // Rango congelado al aceptar el pedido (PIA-2); null en pedidos previos o pendientes.
@@ -502,7 +508,7 @@ export function PanelPedidosAdmin({
                     <button
                       type="button"
                       onClick={() => setPedidoSeleccionadoId(pedido.id)}
-                      className="mt-4 text-sm font-semibold text-rojo hover:underline"
+                      className="mt-4 cursor-pointer text-sm font-semibold text-rojo hover:underline"
                     >
                       Ver detalle
                     </button>
@@ -576,9 +582,19 @@ export function PanelPedidosAdmin({
               {etiquetaMetodoPago(pedidoSeleccionado.metodoPago)}
             </p>
             <dl className="space-y-2 border-t border-negro/10 pt-3">
-              <div className="flex flex-wrap justify-between gap-2"><dt>Subtotal</dt><dd>{formatearImporteUYU(pedidoSeleccionado.subtotal)}</dd></div>
+              <div className="flex flex-wrap justify-between gap-2"><dt>Subtotal bruto de productos</dt><dd>{formatearImporteUYU(pedidoSeleccionado.subtotal)}</dd></div>
+              <div className="flex flex-wrap justify-between gap-2"><dt>Descuento aplicado</dt><dd>−{formatearImporteUYU(pedidoSeleccionado.descuento)}</dd></div>
+              {pedidoSeleccionado.promocion ? (
+                <div className="space-y-1 rounded-xl bg-fondo p-3">
+                  <dt className="font-semibold text-negro">Promoción aplicada</dt>
+                  <dd className="break-words">{pedidoSeleccionado.promocion.nombre} · {pedidoSeleccionado.promocion.porcentaje} %</dd>
+                  <dd className="text-xs text-negro/60">Condiciones guardadas al registrar el pedido.</dd>
+                </div>
+              ) : (
+                <div><dt className="sr-only">Promoción aplicada</dt><dd>Sin promoción aplicada.</dd></div>
+              )}
               <div className="flex flex-wrap justify-between gap-2"><dt>Envío</dt><dd>{formatearImporteUYU(pedidoSeleccionado.costoEnvio)}</dd></div>
-              <div className="flex flex-wrap justify-between gap-2 font-bold text-negro"><dt>Total</dt><dd>{formatearImporteUYU(pedidoSeleccionado.total)}</dd></div>
+              <div className="flex flex-wrap justify-between gap-2 font-bold text-negro"><dt>Total confirmado</dt><dd>{formatearImporteUYU(pedidoSeleccionado.total)}</dd></div>
             </dl>
           </div>
         )}

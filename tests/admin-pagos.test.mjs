@@ -42,10 +42,11 @@ const fila = {
   id: "pedido", numero: 42, creado_en: "2026-10-20T12:00:00Z",
   modalidad: "delivery", metodo_pago: "tarjeta_pos",
   subtotal: "100.25", costo_envio: "20.50", total: "120.75",
+  descuento: "0", promocion_id: null, promocion_nombre: null, promocion_porcentaje: null,
   cliente_nombre: "Ana", cliente_telefono: "+59899806731", estado: "pendiente",
 };
 const rutas = ["src/app/api/admin/pedidos/route.ts", "src/app/api/admin/pedidos/sin-revisar/route.ts"];
-function ruta(archivo, acceso, error = null) {
+function ruta(archivo, acceso, error = null, pedidos = [fila]) {
   const consultas = [];
   const modulo = cargar(archivo, {
     "next/server": { NextResponse },
@@ -59,7 +60,7 @@ function ruta(archivo, acceso, error = null) {
           is: (columna, valor) => { consultas.push([tabla, columna, valor]); return consulta; },
           in: () => consulta, order: () => consulta, limit: () => consulta,
           then: resolver => Promise.resolve({
-            data: error ? null : tabla === "pedidos" ? [fila] : [], error,
+            data: error ? null : tabla === "pedidos" ? pedidos : [], error,
           }).then(resolver),
         };
         return consulta;
@@ -83,8 +84,10 @@ test("API de pedidos y avisos conserva permisos y filtros para owner, admin, emp
       const columnas = endpoint.consultas.find(([, clave]) => clave === "select")[2];
       assert.ok(columnas.includes("metodo_pago"));
       if (archivo === rutas[0]) {
-        for (const columna of ["subtotal", "costo_envio", "total"]) assert.ok(columnas.includes(columna));
+        for (const columna of ["subtotal", "descuento", "promocion_id", "promocion_nombre", "promocion_porcentaje", "costo_envio", "total"]) assert.ok(columnas.includes(columna));
         assert.equal(pedido.subtotal, 100.25);
+        assert.equal(pedido.descuento, 0);
+        assert.equal(pedido.promocion, null);
         assert.equal(pedido.costoEnvio, 20.5);
         assert.equal(pedido.total, 120.75);
       } else {
@@ -146,6 +149,7 @@ test("Tarjeta y detalle muestran pago y aviso POS, con desglose UYU y permisos d
       id: "pedido", numero: 42, creadoEn: fila.creado_en, estado: "pendiente",
       clienteNombre: "Ana", clienteTelefono: "", modalidad, metodoPago,
       subtotal: 100.25, costoEnvio: 20.5, total: 120.75, direccion: {}, items: [],
+      descuento: 0, promocion: null,
     }, false);
     assert.equal(nodos(resultado, nodo => nodo.type === "p" && nodo.props.children === "Llevar POS").length, cantidadAvisos);
     const tarjeta = nodos(resultado, nodo => nodo.type === "article")[0];
@@ -158,6 +162,106 @@ test("Tarjeta y detalle muestran pago y aviso POS, con desglose UYU y permisos d
     assert.ok(texto(resultado).includes("Aceptar pedido"));
   }
   assert.ok(texto(panel(null)).includes("Seleccioná un pedido"));
+});
+
+test("API administrativa expone la instantánea del pedido sin consultar la promoción ni tarifa vigentes", async () => {
+  const registros = [
+    { ...fila, id: "historico" },
+    ...[0, 10, 100].flatMap(porcentaje => ["delivery", "retiro"].map(modalidad => ({
+      ...fila, id: `${modalidad}-${porcentaje}`, modalidad,
+      metodo_pago: modalidad === "delivery" ? "tarjeta_pos" : "pago_en_local",
+      descuento: String(porcentaje),
+      costo_envio: modalidad === "retiro" ? "0" : "20.50",
+      subtotal: "100", total: String(100 - porcentaje + (modalidad === "retiro" ? 0 : 20.5)),
+      promocion_id: "promo-guardada", promocion_nombre: "Nombre original del pedido",
+      promocion_porcentaje: String(porcentaje),
+    }))),
+  ];
+  for (const rol of ["owner", "admin", "empleado", "super_admin"]) {
+    const endpoint = ruta(rutas[0], { autenticado: true, autorizado: true, rol, comercioId: "comercio" }, null, registros);
+    const resultado = await endpoint.GET();
+    assert.equal(resultado.status, 200);
+    const historico = resultado.body.pedidos[0];
+    assert.equal(historico.subtotal, 100.25);
+    assert.equal(historico.descuento, 0);
+    assert.equal(historico.promocion, null);
+    assert.equal(historico.total, 120.75);
+    for (const [indice, registro] of registros.entries()) {
+      const pedido = resultado.body.pedidos[indice];
+      assert.equal(pedido.descuento, Number(registro.descuento));
+      assert.equal(pedido.costoEnvio, Number(registro.costo_envio));
+      assert.equal(pedido.total, Number(registro.total));
+      assert.equal(pedido.modalidad, registro.modalidad);
+      assert.equal(pedido.metodoPago, registro.metodo_pago);
+      if (registro.promocion_id !== null) {
+        assert.deepEqual({ ...pedido.promocion }, {
+          id: registro.promocion_id, nombre: registro.promocion_nombre,
+          porcentaje: Number(registro.promocion_porcentaje),
+        });
+      }
+    }
+    assert.ok(endpoint.consultas.every(([tabla]) =>
+      ["pedidos", "pedido_items", "pedido_item_opciones"].includes(tabla)));
+  }
+});
+
+test("Detalle conserva históricos, instantánea activa al 0 %, envío íntegro y retiro al 100 % con total cero", () => {
+  for (const porcentaje of [null, 0, 10, 100]) {
+    for (const modalidad of ["delivery", "retiro"]) {
+      const descuento = porcentaje ?? 0;
+      const costoEnvio = modalidad === "delivery" ? 20.5 : 0;
+      const total = 100 - descuento + costoEnvio;
+      const pedido = {
+        id: "pedido", numero: 42, creadoEn: fila.creado_en, estado: "pendiente",
+        clienteNombre: "Ana", clienteTelefono: "", modalidad,
+        metodoPago: modalidad === "delivery" ? "tarjeta_pos" : "pago_en_local",
+        subtotal: 100, descuento, costoEnvio, total, direccion: {}, items: [],
+        promocion: porcentaje === null ? null : {
+          id: "promo-guardada", nombre: "Promoción original <sin interpretar HTML>", porcentaje,
+        },
+      };
+      const resultado = panel(pedido, false);
+      const detalle = nodos(resultado, nodo => nodo.type === "aside")[0];
+      const tarjeta = nodos(resultado, nodo => nodo.type === "article")[0];
+      const vista = texto(detalle);
+      for (const concepto of ["Subtotal bruto de productos", "Descuento aplicado", "Envío", "Total confirmado"]) {
+        assert.ok(vista.includes(concepto));
+      }
+      for (const monto of [100, descuento, costoEnvio, total]) {
+        assert.ok(vista.includes(formato.formatearImporteUYU(monto)));
+      }
+      assert.ok(texto(tarjeta).includes(formato.formatearImporteUYU(total)));
+      const renglones = nodos(detalle, nodo => nodo.type === "div");
+      const renglón = etiqueta => renglones.find(nodo => nodos(nodo, hijo => hijo.type === "dt" && texto(hijo) === etiqueta).length);
+      assert.ok(texto(renglón("Total confirmado")).includes(formato.formatearImporteUYU(total)));
+      assert.ok(texto(renglón("Envío")).includes(formato.formatearImporteUYU(costoEnvio)));
+      if (porcentaje === null) {
+        assert.match(vista, /Sin promoción aplicada/);
+        assert.doesNotMatch(vista, /Condiciones guardadas/);
+      } else {
+        assert.ok(vista.includes(pedido.promocion.nombre));
+        assert.match(vista, new RegExp(`${porcentaje}\\s+%`));
+        assert.match(vista, /Condiciones guardadas al registrar/);
+        assert.doesNotMatch(vista, /Sin promoción aplicada/);
+      }
+      assert.ok(!texto(resultado).includes("Cancelar pedido"));
+      assert.ok(texto(resultado).includes("Aceptar pedido"));
+      assert.equal(nodos(resultado, nodo => nodo.type === "p" && nodo.props.children === "Llevar POS").length,
+        modalidad === "delivery" ? 2 : 0);
+    }
+  }
+});
+
+test("API informa migración pendiente sin inventar descuentos para el esquema anterior", async () => {
+  for (const code of ["42703", "PGRST204"]) {
+    const endpoint = ruta(rutas[0], { autenticado: true, autorizado: true, comercioId: "comercio" },
+      { code, message: "No existe la columna descuento" });
+    const resultado = await endpoint.GET();
+    assert.equal(resultado.status, 503);
+    assert.match(resultado.body.error, /migraciones de PIA-4/);
+    assert.equal(resultado.body.pedidos, undefined);
+    assert.equal(endpoint.consultas.filter(([, accion]) => accion === "select").length, 1);
+  }
 });
 
 test("Notificación visual conserva Sin revisar, Visto y sonido y muestra Llevar POS solo cuando corresponde", async () => {

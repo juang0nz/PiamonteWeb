@@ -18,7 +18,7 @@ function cargar(archivo, modulos = {}, globales = {}) {
       assert.ok(nombre in modulos, `Módulo no simulado: ${nombre}`);
       return modulos[nombre];
     },
-    console: { info() {}, error() {} },
+    console: { info() {}, error() {} }, Error, RangeError,
     ...globales,
   });
   return modulo.exports;
@@ -28,8 +28,20 @@ const celular = cargar("src/lib/checkout/celular.ts");
 const tipos = cargar("src/lib/checkout/tipos.ts", { "./celular": celular });
 const tiempos = cargar("src/lib/comercio/tiempos.ts");
 const formato = cargar("src/lib/catalogo/formato.ts");
+const descuentos = cargar("src/lib/comercio/descuentos.ts");
+const descuentoWeb = cargar("src/lib/comercio/descuento-web.ts");
+const confirmacion = cargar("src/lib/checkout/confirmacion.ts", {
+  "@/lib/comercio/descuentos": descuentos,
+  "@/lib/comercio/descuento-web": descuentoWeb,
+});
+const SIN_DESCUENTO = { estado: "conocido", promocion: null };
 const jsx = (type, props) => typeof type === "function" ? type(props) : ({ type, props });
 const runtime = { jsx, jsxs: jsx };
+const resumenImportes = cargar("src/components/catalogo/ResumenImportes.tsx", {
+  "react/jsx-runtime": runtime,
+  "@/lib/catalogo/formato": formato,
+  "@/lib/comercio/descuentos": descuentos,
+});
 const datosBase = {
   ...tipos.DATOS_INICIALES, tipoEntrega: "delivery", metodoPago: null,
   nombre: "Ana", telefono: "099806731", calle: "Calle", numero: "12",
@@ -118,10 +130,11 @@ test("Formulario muestra Efectivo y Tarjeta (POS), errores accesibles y retiro s
 
 const { ResumenPedido } = cargar("src/components/checkout/ResumenPedido.tsx", {
   "react/jsx-runtime": runtime, "@/lib/catalogo/formato": formato,
+  "@/components/catalogo/ResumenImportes": resumenImportes,
 });
 
 test("Resumen muestra UYU y centésimos, sin presentar tarifa desconocida como cero", () => {
-  const conocido = texto(ResumenPedido({ items: [], subtotal: 0.1, costoEnvio: 0.2 }));
+  const conocido = texto(ResumenPedido({ items: [], subtotal: 0.1, costoEnvio: 0.2, descuentoWeb: SIN_DESCUENTO }));
   assert.match(conocido, /Subtotal/);
   assert.match(conocido, /Envío/);
   assert.match(conocido, /Total estimado/);
@@ -132,7 +145,7 @@ test("Resumen muestra UYU y centésimos, sin presentar tarifa desconocida como c
   assert.ok(!desconocido.includes(formato.formatearImporteUYU(0)));
 });
 
-function pantalla({ datosIniciales = datosBase, costoEnvio = 25.5, respuesta, pausado = false, abierto = true } = {}) {
+function pantalla({ datosIniciales = datosBase, costoEnvio = 25.5, respuesta, pausado = false, abierto = true, promocion = SIN_DESCUENTO } = {}) {
   let datos = { ...datosIniciales };
   let items = [{ clave: "item", productoId: "producto", varianteId: null, cantidad: 1, aclaraciones: "", opciones: [], precioUnitario: 100, nombreProducto: "Producto" }];
   const estados = [];
@@ -161,6 +174,7 @@ function pantalla({ datosIniciales = datosBase, costoEnvio = 25.5, respuesta, pa
       },
     },
     "@/lib/checkout/tipos": tipos,
+    "@/lib/checkout/confirmacion": confirmacion,
     "@/lib/hidratacion": { useHidratado: () => true },
     "@/lib/comercio": { SLUG_COMERCIO: "piamonte" },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto, horaApertura: "19:00" }) },
@@ -173,13 +187,13 @@ function pantalla({ datosIniciales = datosBase, costoEnvio = 25.5, respuesta, pa
     fetch: async (_url, opciones) => {
       solicitudes.push(JSON.parse(opciones.body));
       return respuesta ?? { ok: true, status: 201, json: async () => ({
-        pedidoId: "pedido", numeroPedido: 42, subtotal: 100.25, costoEnvio: 30.1, total: 130.35,
+        pedidoId: "pedido", numeroPedido: 42, subtotal: 100.25, descuento: 0, promocion: null, costoEnvio: 30.1, total: 130.35,
       }) };
     },
   });
   const render = () => {
     indice = 0;
-    return PantallaCheckout({ hrefCarrito: "/", costoEnvio, pausa: { pausado, mensaje: "En pausa." } });
+    return PantallaCheckout({ hrefCarrito: "/", costoEnvio, pausa: { pausado, mensaje: "En pausa." }, descuentoWeb: promocion });
   };
   const formulario = () => nodos(render(), nodo => nodo.type === "formulario")[0];
   const confirmar = async () => { formulario().props.onEnviar(); await esperar(); };
@@ -291,6 +305,7 @@ test("La página entrega la tarifa al checkout y conserva el error de tarifa com
       "@/components/checkout/PantallaCheckout": { PantallaCheckout: props => ({ type: "checkout", props }) },
       "@/lib/catalogo/consultas": { obtenerComercio: async () => ({ id: "comercio", nombre: "Comercio" }) },
       "@/lib/comercio": { SLUG_COMERCIO: "piamonte" },
+      "@/lib/comercio/descuento-web-publico": { obtenerDescuentoWeb: async () => SIN_DESCUENTO },
       "@/lib/comercio/tiempos": tiempos,
       "@/lib/comercio/configuracion": {
         obtenerEstadoOperativo: async () => ({
@@ -306,5 +321,125 @@ test("La página entrega la tarifa al checkout y conserva el error de tarifa com
     });
     const resultado = await pagina.default();
     assert.equal(nodos(resultado, nodo => nodo.type === "checkout")[0].props.costoEnvio, fallaTarifa ? null : 25.75);
+  }
+});
+
+test("Checkout oculta descuento inactivo o 0 % y conserva importes en delivery y retiro", () => {
+  for (const porcentaje of [null, 0, 10, 100]) {
+    for (const tipoEntrega of ["delivery", "retiro"]) {
+      const ui = pantalla({
+        datosIniciales: { ...datosBase, tipoEntrega, metodoPago: tipoEntrega === "retiro" ? "pago_en_local" : "efectivo" },
+        promocion: { estado: "conocido", promocion: porcentaje === null ? null : { nombre: "Descuento web", porcentaje } },
+      });
+      const vista = texto(ui.render());
+      if (porcentaje === null || porcentaje === 0) {
+        assert.equal(nodos(ui.render(), nodo => nodo.type === "span" && /^Descuento web/.test(texto(nodo))).length, 0);
+        assert.doesNotMatch(vista, /−\$/);
+      } else assert.match(vista, new RegExp(`Descuento web\\s+\\(${porcentaje} %\\)`));
+      const envio = tipoEntrega === "retiro" ? 0 : 25.5;
+      assert.ok(vista.includes(formato.formatearImporteUYU(100 - porcentaje + envio)));
+      assert.match(vista, /Subtotal con descuento/);
+    }
+  }
+});
+
+test("Descuento desconocido no equivale a desactivado y bloquea el registro", async () => {
+  const ui = pantalla({
+    datosIniciales: { ...datosBase, metodoPago: "efectivo" },
+    promocion: { estado: "desconocido" },
+  });
+  assert.match(texto(ui.render()), /No pudimos consultar el descuento web/);
+  assert.match(texto(ui.render()), /Por confirmar/);
+  assert.doesNotMatch(texto(ui.render()), /Descuento web desactivado/);
+  const boton = nodos(ui.render(), nodo => nodo.type === "button" && nodo.props.form)[0];
+  assert.equal(boton.props.disabled, true);
+  await ui.confirmar();
+  assert.equal(ui.solicitudes.length, 0);
+});
+
+test("Confirmación usa la promoción realmente registrada aunque cambie o se desactive durante la compra", async () => {
+  for (const [estimado, aplicado] of [[10, 25], [10, null], [null, 10], [10, 100], [100, 0], [10, 1]]) {
+    for (const tipoEntrega of ["delivery", "retiro"]) {
+      const costoEnvio = tipoEntrega === "retiro" ? 0 : 30.1;
+      const promo = aplicado === null ? null : { id: "promo", nombre: "Descuento web", porcentaje: aplicado };
+      const importes = descuentos.calcularDescuentoPorcentual({ subtotal: 100.25, costoEnvio, porcentaje: aplicado ?? 0 });
+      const ui = pantalla({
+        datosIniciales: { ...datosBase, tipoEntrega, metodoPago: tipoEntrega === "retiro" ? "pago_en_local" : "tarjeta_pos" },
+        promocion: { estado: "conocido", promocion: estimado === null ? null : { nombre: "Web", porcentaje: estimado } },
+        respuesta: { ok: true, status: 201, json: async () => ({
+          pedidoId: "pedido", numeroPedido: 42, ...importes, promocion: promo,
+        }) },
+      });
+      await ui.confirmar();
+      const vista = texto(ui.render());
+      assert.match(vista, /Total confirmado/);
+      assert.ok(vista.includes(formato.formatearImporteUYU(importes.total)));
+      assert.match(vista, /Estado del pedido:.*Pendiente/);
+      assert.equal(ui.vaciados(), 1);
+      assert.equal(ui.solicitudes[0].descuento, undefined);
+      assert.equal(ui.solicitudes[0].promocion, undefined);
+      assert.equal(ui.solicitudes[0].porcentaje, undefined);
+      if (aplicado === null || aplicado === 0) {
+        assert.equal(nodos(ui.render(), nodo => nodo.type === "dt" && /^Descuento web/.test(texto(nodo))).length, 0);
+        assert.doesNotMatch(vista, /−\$/);
+      } else assert.match(vista, new RegExp(`Descuento web\\s+\\(${aplicado} %\\)`));
+    }
+  }
+});
+
+test("Retiro con 100 % confirma total cero y conserva la confirmación manual del local", async () => {
+  const ui = pantalla({
+    datosIniciales: { ...datosBase, tipoEntrega: "retiro", metodoPago: "pago_en_local" },
+    costoEnvio: null,
+    promocion: { estado: "conocido", promocion: { nombre: "Web", porcentaje: 100 } },
+    respuesta: { ok: true, status: 201, json: async () => ({
+      pedidoId: "pedido", numeroPedido: 42, subtotal: 100, descuento: 100, costoEnvio: 0,
+      total: 0, promocion: { id: "promo", nombre: "Web", porcentaje: 100 },
+    }) },
+  });
+  assert.equal(nodos(ui.render(), nodo => nodo.type === "button" && nodo.props.form)[0].props.disabled, false);
+  await ui.confirmar();
+  assert.equal(ui.solicitudes[0].metodoPago, "pago_en_local");
+  assert.match(texto(ui.render()), /Total confirmado/);
+  assert.match(texto(ui.render()), /Estado del pedido:.*Pendiente/);
+  assert.match(texto(ui.render()), /Pago pendiente/);
+});
+
+test("Respuestas monetarias manipuladas no se muestran como confirmadas ni habilitan un segundo pedido", async () => {
+  const valida = {
+    pedidoId: "pedido", numeroPedido: 42, subtotal: 100, descuento: 10, costoEnvio: 25.5,
+    total: 115.5, promocion: { id: "promo", nombre: "Web", porcentaje: 10 },
+  };
+  for (const cambios of [
+    { descuento: -10 }, { descuento: 101 }, { descuento: "10" }, { descuento: 10.001 },
+    { total: 125.5 }, { total: -1 }, { total: Infinity }, { total: NaN }, { total: "115.5" },
+    { costoEnvio: -1 }, { costoEnvio: 0.001 }, { subtotal: 1e10 }, { subtotal: 0 },
+    { promocion: null }, { promocion: {} }, { promocion: { ...valida.promocion, porcentaje: 10.5 } },
+    { promocion: { ...valida.promocion, porcentaje: 101 } }, { promocion: { ...valida.promocion, nombre: "" } },
+    { numeroPedido: 0 }, { numeroPedido: 42.5 }, { descuento: undefined },
+  ]) {
+    const ui = pantalla({
+      datosIniciales: { ...datosBase, metodoPago: "efectivo" },
+      respuesta: { ok: true, status: 201, json: async () => ({ ...valida, ...cambios }) },
+    });
+    await ui.confirmar();
+    assert.equal(ui.vaciados(), 1);
+    assert.doesNotMatch(texto(ui.render()), /Total confirmado/);
+    assert.match(texto(ui.render()), /pedido se registró, pero no pudimos mostrar su total confirmado/);
+    assert.equal(nodos(ui.render(), nodo => nodo.type === "formulario").length, 0);
+  }
+  assert.equal(confirmacion.validarConfirmacionPedido(valida, "retiro"), null);
+});
+
+test("La validación confirmada contrasta los 15 vectores de referencia sin usar la configuración visual", () => {
+  const casos = JSON.parse(fs.readFileSync(new URL("./fixtures/descuentos-porcentuales.json", import.meta.url), "utf8"));
+  for (const caso of casos) {
+    const entrada = { subtotal: caso.subtotal, costoEnvio: caso.costoEnvio, porcentaje: caso.porcentaje };
+    const cuerpo = {
+      pedidoId: "pedido", numeroPedido: 42,
+      ...descuentos.calcularDescuentoPorcentual(entrada),
+      promocion: { id: "promo", nombre: "Web", porcentaje: entrada.porcentaje },
+    };
+    assert.equal(Boolean(confirmacion.validarConfirmacionPedido(cuerpo, "delivery")), entrada.subtotal > 0, caso.caso);
   }
 });

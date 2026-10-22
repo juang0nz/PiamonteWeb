@@ -1532,13 +1532,19 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
       assert.equal(nombre, "registrar_pedido_desde_checkout");
       operacionesPrivadas.push(nombre);
       parametros = args;
-      return { data: [{ pedido_id: "pedido-prueba" }], error: null };
+      return { data: [{
+        pedido_id: "pedido-prueba", numero_pedido: 42, subtotal: args.p_subtotal,
+        descuento: 0, costo_envio: args.p_costo_envio,
+        total: args.p_subtotal + args.p_costo_envio,
+        promocion_id: null, promocion_nombre: null, promocion_porcentaje: null,
+      }], error: null };
     },
   };
   const registrar = cargar("src/lib/pedidos/registrar.ts", {
     "@/lib/catalogo/configurador": { limitesGrupo() { throw new Error("No hay grupos"); } },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto: true }) },
     "@/lib/comercio/tiempos": cargar("src/lib/comercio/tiempos.ts"),
+    "@/lib/comercio/descuentos": cargar("src/lib/comercio/descuentos.ts", {}),
     "@/lib/supabase/server": { createClient: async () => supabase },
     "@/lib/supabase/private": { createPrivateClient: () => privado },
     "@/lib/checkout/tipos": checkout, "@/lib/checkout/celular": celular,
@@ -1561,9 +1567,9 @@ test("Registro de invitado mantiene RPC, precios calculados, celular normalizado
   assert.equal(parametros.p_direccion_calle, null);
   assert.equal(resultado.numeroPedido, 42);
   assert.equal(resultado.pedidoId, "pedido-prueba");
-  assert.deepEqual(operacionesPrivadas, ["registrar_pedido_desde_checkout", "pedidos"]);
+  assert.deepEqual(operacionesPrivadas, ["registrar_pedido_desde_checkout"]);
   await assert.rejects(registrar.validarYRegistrarPedido({ ...input, checkout: { ...input.checkout, telefono: "24001234" } }), /datos del checkout/);
-  assert.equal(operacionesPrivadas.length, 2);
+  assert.equal(operacionesPrivadas.length, 1);
 });
 test("Endpoint público registra sin consultar sesión", async () => {
   let recibido;

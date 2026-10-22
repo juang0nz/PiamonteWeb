@@ -88,7 +88,12 @@ function supabaseConPausa(pausado, alRpc) {
     },
     rpc: async (nombre, args) => {
       alRpc(nombre, args);
-      return { data: [{ pedido_id: "pedido-prueba" }], error: null };
+      return { data: [{
+        pedido_id: "pedido-prueba", numero_pedido: 7, subtotal: args.p_subtotal,
+        descuento: 0, costo_envio: args.p_costo_envio,
+        total: args.p_subtotal + args.p_costo_envio,
+        promocion_id: null, promocion_nombre: null, promocion_porcentaje: null,
+      }], error: null };
     },
   };
 }
@@ -98,6 +103,7 @@ function cargarRegistrar(supabase) {
     "@/lib/catalogo/configurador": { limitesGrupo() { throw new Error("No hay grupos"); } },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto: true }) },
     "@/lib/comercio/tiempos": tiempos,
+    "@/lib/comercio/descuentos": cargar("src/lib/comercio/descuentos.ts"),
     "@/lib/supabase/server": { createClient: async () => supabase },
     "@/lib/supabase/private": { createPrivateClient: () => supabase },
     "@/lib/checkout/tipos": checkout, "@/lib/checkout/celular": celular,
@@ -316,6 +322,7 @@ async function cargarPanelDelivery(responderGuardado) {
   const jsx = (type, props) => ({ type, props });
   const fila = { ...tiempos.CONFIGURACION_INICIAL, costo_envio: 25.5 };
   const panel = cargar("src/components/admin/PanelOperacionAdmin.tsx", {
+    "./ConfiguracionDescuentoWeb": { ConfiguracionDescuentoWeb: () => null },
     react: {
       useState: inicial => {
         const posicion = indice++;

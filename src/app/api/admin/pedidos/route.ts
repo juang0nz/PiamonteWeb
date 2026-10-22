@@ -16,6 +16,10 @@ type PedidoRow = {
   estado: string;
   metodo_pago: string;
   subtotal: number | string;
+  descuento: number | string;
+  promocion_id: string | null;
+  promocion_nombre: string | null;
+  promocion_porcentaje: number | string | null;
   costo_envio: number | string;
   total: number | string;
   tiempo_estimado_min: number | null;
@@ -58,7 +62,7 @@ export async function GET() {
   const { data: pedidosRows, error: pedidosError } = await supabase
     .from("pedidos")
     .select(
-      "id, numero, creado_en, cliente_nombre, cliente_telefono, modalidad, direccion_calle, direccion_numero, direccion_apartamento, direccion_referencias, estado, metodo_pago, subtotal, costo_envio, total, tiempo_estimado_min, tiempo_estimado_max",
+      "id, numero, creado_en, cliente_nombre, cliente_telefono, modalidad, direccion_calle, direccion_numero, direccion_apartamento, direccion_referencias, estado, metodo_pago, subtotal, descuento, promocion_id, promocion_nombre, promocion_porcentaje, costo_envio, total, tiempo_estimado_min, tiempo_estimado_max",
     )
     .eq("comercio_id", estadoAcceso.comercioId)
     .order("creado_en", { ascending: false })
@@ -72,6 +76,12 @@ export async function GET() {
       details: pedidosError.details,
       hint: pedidosError.hint,
     });
+    if (["42703", "PGRST204"].includes(pedidosError.code)) {
+      return NextResponse.json(
+        { error: "No pudimos consultar los pedidos: verificá las migraciones de PIA-4 pendientes en este entorno." },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { error: "No pudimos consultar los pedidos en este momento." },
       { status: 500 },
@@ -174,6 +184,12 @@ export async function GET() {
         estado: pedido.estado,
         metodoPago: pedido.metodo_pago,
         subtotal: Number(pedido.subtotal),
+        descuento: Number(pedido.descuento),
+        promocion: pedido.promocion_id === null ? null : {
+          id: pedido.promocion_id,
+          nombre: pedido.promocion_nombre,
+          porcentaje: Number(pedido.promocion_porcentaje),
+        },
         costoEnvio: Number(pedido.costo_envio),
         total: Number(pedido.total),
         // Rango congelado al aceptar el pedido; null en pedidos previos o pendientes.

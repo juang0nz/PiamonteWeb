@@ -19,7 +19,7 @@ manual y auditada que hace una persona con acceso al proyecto.
   en la organización del dueño. Cuando se otorgue, se recrea en esa organización y en la
   misma región que producción con el procedimiento de "Recrear el proyecto de desarrollo".
 
-## Estado de la cadena de migraciones (actualizado al cierre de PIA-3, 2026-10-20)
+## Estado de la cadena de migraciones (actualizado con PIA-4, 2026-10-21)
 
 `supabase/migrations/` es reproducible desde cero:
 
@@ -30,8 +30,12 @@ manual y auditada que hace una persona con acceso al proyecto.
 | `20261017210509_limpiar_rpc_pedidos.sql` | **PIA-20.** Retira los objetos de Mercado Pago (`pagos`, `pagos_notificaciones`, `confirmar_pago_mercado_pago`, `reservar_preferencia_mercado_pago`); cambia el contrato de `metodo_pago` a `('efectivo', 'tarjeta_pos')` en la RPC `registrar_pedido_desde_checkout` (misma firma; `pago_id` del resultado queda siempre `null`) y en el check de `pedidos` (creado `NOT VALID` por si producción tiene filas históricas con `mercado_pago`); crea la función y el trigger `validar_disponibilidad_item_pedido` sobre `pedido_items` que el script histórico 04 nunca llegó a aplicar. Conserva `pedidos.estado_pago` y su check para PIA-3. En esa etapa la aplicación solo enviaba `"efectivo"`; PIA-3 incorpora la selección POS y el pago en local. **Pendiente de aplicar en producción** en el próximo release: ver "Procedimiento para una migración nueva". |
 | `20261018123209_demanda_tiempos_pausa.sql` | **PIA-2.** Tabla `comercio_configuracion` (1:1 con `comercios`: `demanda` normal/alta, ocho rangos de minutos retiro/envío × normal/alta con checks 0–240 y máximo ≥ mínimo, `pedidos_pausados`, `mensaje_pausa`, `actualizado_en` con el trigger existente `clientes_actualizar_actualizado_en`), con lectura pública de la fila del comercio activo, sin escritura directa para la API, fila inicial por comercio y publicada en Realtime. Columnas `pedidos.tiempo_estimado_min/max` (rango congelado al aceptar; null en pedidos previos). RPC auditada `admin_actualizar_configuracion_comercio(p_operacion_id, p_comercio_id, p_cambios jsonb)` (solo `authenticated`; exige owner/admin o super admin; claves permitidas fijas). Redefine con la misma firma y permisos `auditoria_iniciar_operacion` (entidad nueva `comercio_configuracion`, también agregada al check de `auditoria_eventos`) y `admin_actualizar_estado_pedido_auditado` (al pasar a `en_preparacion` guarda el rango vigente según modalidad y demanda). **Pendiente de aplicar en producción** junto con la de PIA-20. |
 | `20261020145041_medios_pago_costo_envio.sql` | **PIA-3.** Tarifa `comercio_configuracion.costo_envio` con valor inicial 0 UYU, edición por RPC auditada, métodos `efectivo`/`tarjeta_pos`/`pago_en_local` y RPC de registro de 12 parámetros que guarda subtotal, envío y total. Conserva históricos y permisos mínimos. **Aplicada únicamente en `piamonte-dev`, según confirmación del responsable del 2026-10-20; pendiente en producción.** |
+| `20261020180500_promociones_automaticas.sql` | **PIA-4, etapa 1.** Modelo mínimo de promoción automática web por comercio, inicial desactivado al 0 %, lectura pública limitada y administración auditada. Requiere cadena hasta PIA-3. **Preparada, sin aplicar en ningún entorno.** |
+| `20261021024000_descuento_pedidos.sql` | **PIA-4, etapa 3.** Descuento e instantánea histórica, fórmula de total con descuento y RPC con los mismos 12 argumentos y resultado ampliado. Requiere la anterior; recrea la RPC con `RESTRICT`, sin eliminar dependencias. **Preparada, sin aplicar en ningún entorno.** |
 
-Las cinco están aplicadas en `piamonte-dev`; la aplicación de PIA-3 y sus pruebas
+Las primeras cinco están aplicadas en `piamonte-dev`; las dos de PIA-4 siguen
+pendientes según el responsable, sin comprobación remota en esta tarea.
+La aplicación de PIA-3 y sus pruebas
 funcionales fueron confirmadas por el responsable el 2026-10-20, sin una nueva
 consulta remota durante el cierre técnico. En producción la foto base figura como aplicada
 en `supabase_migrations.schema_migrations` (ver "Nota sobre el historial de producción");
@@ -135,6 +139,224 @@ estáticamente el contrato, permisos, preservación de auditoría, ítems, dispo
 y tratamiento de históricos; no ejecutan la migración. Las pruebas funcionales
 en desarrollo fueron confirmadas por el responsable; no equivalen a verificar
 históricos, dependencias, permisos y auditoría efectivos en producción.
+
+### PIA-4, etapa 1: promociones automáticas preparadas, sin aplicar
+
+La migración nueva
+[`20261020180500_promociones_automaticas.sql`](../supabase/migrations/20261020180500_promociones_automaticas.sql)
+requiere la cadena hasta PIA-3. **Está preparada para revisión y no fue aplicada
+en desarrollo ni en producción.** No modifica migraciones anteriores, pedidos,
+la RPC de checkout, precios ni promociones de productos del catálogo.
+
+**Modelo:** `public.promociones` tiene UUID, comercio, clave funcional, nombre,
+activación, tipo y valor de descuento, aplicación, alcance, canal, código y fechas.
+Una restricción única `(comercio_id, clave)` permite buscar el descuento sin
+duplicados y ya indexa su consulta; no hace falta otro índice para este alcance.
+La FK al comercio utiliza `ON DELETE RESTRICT`: no se eliminan promociones en
+cascada. La tabla habilita RLS y no concede acceso directo a los roles de API.
+
+La combinación soportada es exclusivamente `descuento_web`, `porcentaje`,
+`automatica`, `tienda`, `web`, sin código (`NULL`). El valor es `numeric` **sin
+escala**, con check entero entre 0 y 100 inclusive: evita que PostgreSQL redondee
+una fracción antes de validarla. También rechaza valores no finitos. El nombre
+debe tener de 1 a 120 caracteres no blancos. Activación, valor y fechas no admiten
+`NULL`; `actualizado_en` usa el trigger genérico existente.
+
+Se crea una fila inicial **desactivada y con porcentaje 0** por comercio existente.
+Un trigger `AFTER INSERT` en `comercios` inicializa los futuros en la misma
+transacción. Ambos caminos usan `ON CONFLICT (comercio_id, clave) DO NOTHING`,
+sin sobrescribir configuración. La inicialización es de sistema, sin evento
+administrativo ni necesidad de una sesión; las modificaciones posteriores sí
+quedan auditadas. La migración completa no es reejecutable.
+
+**RPC y permisos:**
+
+| RPC | Acceso y resultado |
+| --- | --- |
+| `obtener_descuento_web(p_comercio_id uuid)` | `anon`, `authenticated` y `service_role`. Devuelve solo `(nombre text, valor numeric)` de la promoción activa y soportada de un comercio activo; cero filas si no aplica. No expone UUID, fechas ni metadatos administrativos. Un error SQL no es equivalente a cero filas ni debe tratarse como descuento desactivado. |
+| `admin_obtener_descuento_web(p_comercio_id uuid)` | Solo `authenticated`, con `auth.uid()` y autorización owner/admin del comercio o super admin activo. Devuelve la fila completa, aunque esté desactivada; no genera auditoría por una lectura. |
+| `admin_actualizar_descuento_web(p_operacion_id uuid, p_comercio_id uuid, p_cambios jsonb)` | Mismos permisos administrativos. Admite exclusivamente cambios parciales de `activa` (booleano JSON) y `valor` (número JSON entero 0–100); rechaza `NULL`, cadenas, claves desconocidas y objetos vacíos. Devuelve la fila resultante. |
+
+Las funciones son `SECURITY DEFINER`, de dueño explícito `postgres`, con
+`search_path` fijo. Se revocan los permisos implícitos antes de conceder únicamente
+los necesarios. No hay escritura directa para `service_role`; la administración
+debe usar el cliente de sesión, no el privado, para conservar `auth.uid()`.
+El rol empleado no puede consultar ni modificar la configuración administrativa,
+aunque puede acceder a la misma proyección pública que cualquier visitante.
+
+La única ampliación de los helpers de auditoría es la entidad `promocion` en el
+check de eventos y en `auditoria_iniciar_operacion`; se conserva el resto de su
+cuerpo y permisos. La actualización filtra siempre comercio y clave, bloquea por
+operación y luego por fila y registra instantáneas anteriores/nuevas en la misma
+transacción. Un reintento de la misma operación no vuelve a escribir ni auditar y
+devuelve el estado vigente; si los valores solicitados no coinciden con el evento
+original, falla explícitamente. La reutilización de una operación de otro actor,
+comercio, entidad o registro conserva los rechazos existentes.
+
+**Aplicación integrada en las etapas 2–6:** la migración de etapa 1 por sí sola no
+calcula descuentos ni cambia el total de un pedido. El beneficio cubre productos, variantes,
+adicionales y productos de la categoría Promos, tanto en delivery como en retiro.
+Se calcula solo sobre el subtotal bruto, nunca sobre envío, con configuración
+vigente al registrar y redondeo único al centésimo, con mitades hacia arriba.
+El 100 % está permitido y registro y checkout ya admiten total cero en retiro.
+No activar comercialmente hasta aplicar y validar ambas migraciones y las
+interfaces en desarrollo. PIA-9 ampliará este modelo mediante
+migraciones nuevas, sin implementar ahora cupones, vigencias, prioridades ni usos.
+El script puntual de `supabase/pendientes/configurar_promo_10_lehmeyun.sql` no se usa.
+
+Pruebas: `node --test tests/promociones-sql.test.mjs`. Son comprobaciones estáticas
+del contrato, no ejecución PostgreSQL ni pruebas remotas de RLS o concurrencia.
+Antes de aplicar con autorización en desarrollo, revisar dependencias del entorno
+y contemplar los bloqueos DDL; después probar permisos efectivos, inicialización
+de comercios, auditoría y reintentos concurrentes. No se consulta ni cambia el
+vínculo de Supabase para preparar esta etapa.
+
+### PIA-4, etapa 2: contrato monetario puro
+
+[`calcularDescuentoPorcentual`](../src/lib/comercio/descuentos.ts) recibe
+`{ subtotal, costoEnvio, porcentaje }` y devuelve `{ subtotal, descuento, costoEnvio, total }`
+en UYU. No consulta datos ni modifica pedidos o configuración. Acepta importes
+numéricos finitos entre 0 y 9999999999,99, con hasta dos decimales, y porcentaje
+entero 0–100. Rechaza entradas inválidas y total fuera de rango con `RangeError`,
+sin redondear importes de entrada ni sustituirlos silenciosamente por cero.
+
+Convierte la representación decimal a centésimos y usa `BigInt` para todas las
+operaciones monetarias. El descuento en centésimos es
+`(subtotalCentimos * porcentaje + 50) / 100` con división entera: redondeo único
+sobre todo el subtotal, con mitades hacia arriba. El total se obtiene restando
+el descuento y sumando el envío intacto. Permite subtotal cero y total cero;
+no impone aquí las reglas de existencia o cantidad de productos de un pedido.
+Solo convierte a `number` en UYU al devolver el resultado; todos los centésimos
+admitidos caben en el rango entero seguro.
+
+Los [casos de referencia](../tests/fixtures/descuentos-porcentuales.json) tienen
+entradas y resultados explícitos para contrastar con el futuro cálculo SQL
+`round(subtotal * porcentaje / 100, 2)` usando `numeric`. Las
+[pruebas](../tests/descuentos.test.mjs) los ejecutan sin dependencias externas.
+No guardar ni aplicar estos resultados hasta implementar las etapas siguientes;
+la migración de etapa 1 continúa preparada y sin aplicar.
+
+### PIA-4, etapa 3: registro transaccional del descuento, sin aplicar
+
+La nueva migración
+[`20261021024000_descuento_pedidos.sql`](../supabase/migrations/20261021024000_descuento_pedidos.sql)
+requiere PIA-3 y la migración de promociones de etapa 1, que tampoco fue aplicada
+durante esta tarea. **Ambas quedan preparadas, no se ejecutó SQL remoto ni se
+modificó el vínculo de Supabase.** La migración de etapa 3 no es reejecutable.
+
+Agrega a `pedidos`:
+
+- `descuento numeric(12,2) NOT NULL DEFAULT 0`.
+- `promocion_id uuid`, `promocion_nombre text` y `promocion_porcentaje numeric`
+  (instantánea, inicialmente `NULL`).
+- FK compuesta `(comercio_id, promocion_id)` hacia promociones, con `RESTRICT`;
+  una clave única adicional en promociones permite exigir pertenencia al mismo
+  comercio. No se permite borrar una promoción referenciada por pedidos.
+- Checks de descuento no negativo y no mayor al subtotal, porcentaje entero
+  0–100, instantánea completa o ausente y coherencia con el descuento redondeado.
+- Nueva igualdad `total = subtotal - descuento + costo_envio`, sin admitir `NaN`.
+
+No actualiza ni elimina pedidos existentes: el descuento inicial cero conserva
+todos los importes y datos previos. La instantánea no depende del valor o nombre
+actual de la promoción ni se recalcula al editarla. Los ítems, variantes y
+adicionales mantienen sus importes brutos; todo su subtotal es elegible.
+
+**RPC:** `registrar_pedido_desde_checkout` conserva exactamente sus 12 parámetros
+de entrada, sin parámetros de descuento provenientes del navegador. Lee
+`descuento_web` del comercio activo y bloquea esa fila `FOR SHARE` durante el
+registro, incluso cuando está desactivada. Las actualizaciones administrativas
+concurrentes se serializan respecto de ese bloqueo. Si falta la configuración,
+falla explícitamente; no inventa un descuento cero por error de lectura.
+
+Si está activa, guarda su ID/nombre/porcentaje (también para 0 %) y calcula
+`round(p_subtotal * v_porcentaje / 100, 2)` usando `numeric`. Solo luego suma el
+envío. Si está inactiva guarda descuento cero y sin instantánea. Acepta total cero,
+pero conserva subtotal positivo, modalidades, medios de pago, retiro sin envío,
+estados iniciales, número automático, inserción atómica y trigger de disponibilidad
+de PIA-3. El límite de total se valida después del descuento, no sobre la suma bruta.
+
+El resultado ahora contiene `pedido_id`, `pago_id` (siempre `NULL`),
+`numero_pedido`, `subtotal`, `descuento`, `costo_envio`, `total`,
+`promocion_id`, `promocion_nombre`, `promocion_porcentaje`: se obtiene de la fila
+realmente insertada. El servidor devuelve `pedidoId`, `numeroPedido`, `subtotal`,
+`descuento`, `costoEnvio`, `total` y `promocion` (objeto con ID/nombre/porcentaje o
+`null`). Contrasta la aritmética y los importes brutos con el pedido recalculado,
+sin consultar una configuración posterior ni sustituir el total por una estimación.
+
+El cambio de resultado obliga a recrear la RPC: se usa `DROP FUNCTION ... RESTRICT`
+en la misma transacción, sin `CASCADE`. Se restauran dueño `postgres`,
+`SECURITY DEFINER`, `search_path` fijo y `EXECUTE` solo para `postgres`/`service_role`.
+La cadena versionada no registra dependencias SQL sobre esta RPC. Si el entorno
+tiene dependencias adicionales, `RESTRICT` abortará sin eliminarlas; revisarlas
+antes de autorizar la aplicación. No se alteran permisos ni funciones de auditoría
+administrativa en esta etapa.
+
+Si la RPC devuelve un ID pero sus importes son inválidos, el endpoint conserva
+el pedido creado con HTTP 201, `code: IMPORTES_NO_CONFIRMADOS`, advertencia y
+todos los importes en `null`, con error explícito en logs. No vuelve a ejecutar
+la RPC ni inventa importes. Sin ID válido informa error y aconseja consultar al
+local antes de reenviar. Esto no agrega idempotencia al registro de pedidos.
+
+**Integración completada en etapas 4–6:** Operación guarda mediante la RPC auditada;
+carrito y checkout estiman con el módulo puro y distinguen configuración desconocida
+de desactivada. Checkout valida la fórmula con descuento y admite total cero,
+mostrando los importes e instantánea confirmados por el servidor aunque cambie la
+configuración. Administración lee el descuento y nombre/porcentaje de `pedidos`,
+sin consultar la promoción vigente. Los históricos tienen descuento cero e
+instantánea nula, sin recalcular importes. La promoción inicial sigue desactivada.
+
+**Incompatibilidad de despliegue pendiente:** la aplicación completa requiere
+ambas migraciones de PIA-4. Antes de aplicarlas, la lectura pública falla y
+checkout bloquea la confirmación; la API administrativa responde 503 si faltan
+las columnas nuevas. No hay compatibilidad silenciosa que invente descuento cero
+ni reintento con el resultado anterior de la RPC.
+
+Pruebas enfocadas: `node --test tests/registro-pagos.test.mjs
+tests/descuento-pedidos-sql.test.mjs`. Incluyen contrato estático y respuestas
+del registro con dobles. La suite SQL admite además PostgreSQL embebido en memoria:
+`PIA_POSTGRES_TEST_MODULE` debe apuntar al módulo local `dist/index.js` de PGlite,
+instalado fuera del repositorio (validación realizada con 0.5.10). Sin esa variable,
+solo se omite el bloque de integración y se indica explícitamente en el runner.
+No es una dependencia de la aplicación ni requiere credenciales.
+El bloque ejecuta las migraciones de promociones y pedidos en un esquema aislado
+de prueba, compara los 15 vectores SQL/TypeScript, prueba la RPC, históricos,
+snapshot, límites, permisos y atomicidad. No sustituye validar en desarrollo
+los triggers de disponibilidad reales, RLS, dependencias adicionales y concurrencia
+entre conexiones, después de una aplicación autorizada.
+
+### PIA-4, etapa 6: revisión final de dependencias y contrato
+
+La revisión local de la cadena confirma este orden:
+
+1. Cadena base, PIA-20, PIA-2 y PIA-3; provee auditoría, autorización, trigger
+   `clientes_actualizar_actualizado_en`, `pedidos_check1`, validación de
+   disponibilidad y RPC de 12 argumentos.
+2. `20261020180500_promociones_automaticas.sql`: crea la tabla y las RPC,
+   extiende únicamente la entidad de auditoría e inicializa comercios.
+3. `20261021024000_descuento_pedidos.sql`: agrega descuento/instantánea, FK
+   compuesta por comercio y fórmula; recrea exclusivamente la RPC de registro.
+
+Los nombres enviados por el servidor coinciden con SQL:
+`p_comercio_id`, `p_modalidad_entrega`, `p_cliente_nombre`, `p_cliente_telefono`,
+`p_direccion_calle`, `p_direccion_numero`, `p_direccion_apartamento`,
+`p_direccion_referencias`, `p_metodo_pago`, `p_subtotal`, `p_items`,
+`p_costo_envio`. No hay argumentos de descuento ni promoción. La firma tipada es
+`(uuid, text, text, text, text, text, text, text, text, numeric, jsonb, numeric)`.
+El retorno ampliado y los permisos mínimos están descritos arriba y cubiertos por
+pruebas estáticas, incluida la comparación de argumentos contra el servidor.
+
+No se modificó ninguna migración. La revisión es de archivos versionados, no
+certifica el estado real de Supabase. Antes de aplicar se deben revisar historial,
+dependencias externas de la RPC, integridad de históricos (incluidos importes no
+finitos), permisos efectivos y bloqueos DDL. `RESTRICT` aborta la segunda migración
+si hay dependencias; no autoriza eliminarlas ni usar `CASCADE`. Cada archivo usa
+su propia transacción: si falla el segundo, el primero puede haber quedado
+aplicado. No reejecutar archivos ya registrados ni reparar historial a ciegas.
+El caché de esquema de PostgREST debe reconocer el nuevo resultado antes de probar
+pedidos, sin volver a enviarlos si ya se obtuvo un identificador.
+
+El [procedimiento propuesto de validación](OPERACION.md#validación-propuesta-de-pia-4-solo-en-piamonte-dev-no-ejecutada)
+queda pendiente de aprobación; no se ejecutó SQL ni se aplicaron migraciones.
 
 ### Nota sobre el historial de producción
 

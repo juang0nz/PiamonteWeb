@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { formatearPrecio } from "@/lib/catalogo/formato";
 import { useCarrito } from "@/lib/carrito/almacen";
+import type { EstadoDescuentoWeb } from "@/lib/comercio/descuento-web";
 import { ContenidoCarrito } from "./ContenidoCarrito";
 import { Dialogo } from "./Dialogo";
 
@@ -11,10 +11,12 @@ import { Dialogo } from "./Dialogo";
 // salvo en pantallas anchas, donde ya está visible el panel lateral.
 export function BarraCarritoMovil({
   abrirAlInicio = false,
+  descuentoWeb,
 }: {
   abrirAlInicio?: boolean;
+  descuentoWeb?: EstadoDescuentoWeb;
 }) {
-  const { cantidadTotal, total } = useCarrito();
+  const { cantidadTotal } = useCarrito();
   const [abierto, setAbierto] = useState(
     () =>
       abrirAlInicio &&
@@ -35,12 +37,12 @@ export function BarraCarritoMovil({
           Ver pedido · {cantidadTotal}{" "}
           {cantidadTotal === 1 ? "producto" : "productos"}
         </span>
-        <span>{formatearPrecio(total)}</span>
+        <span>Ver importes</span>
       </button>
       {abierto && (
         <Dialogo titulo="Tu pedido" onCerrar={() => setAbierto(false)}>
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
-            <ContenidoCarrito />
+            <ContenidoCarrito descuentoWeb={descuentoWeb} />
           </div>
         </Dialogo>
       )}

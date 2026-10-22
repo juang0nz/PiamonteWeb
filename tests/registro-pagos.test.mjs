@@ -17,6 +17,7 @@ function cargar(archivo, modulos = {}) {
       return modulos[nombre];
     },
     console: { error() {}, info() {} },
+    TextEncoder,
   });
   return modulo.exports;
 }
@@ -24,6 +25,7 @@ function cargar(archivo, modulos = {}) {
 const celular = cargar("src/lib/checkout/celular.ts");
 const checkout = cargar("src/lib/checkout/tipos.ts", { "./celular": celular });
 const tiempos = cargar("src/lib/comercio/tiempos.ts");
+const descuentos = cargar("src/lib/comercio/descuentos.ts");
 const inputBase = {
   comercioSlug: "piamonte",
   metodoPago: "efectivo",
@@ -39,6 +41,7 @@ function preparar({
   errorRpc = null, pausado = false, disponible = true,
   categoriaActiva = true, precio = 0.1, adicional = 0.2,
   abierto = true, comercioActivo = true, varianteDisponible = true,
+  porcentaje = null, respuestaRpc, numeroPedido = 42,
 } = {}) {
   const llamadas = [];
   const consultas = [];
@@ -79,7 +82,16 @@ function preparar({
     rpc: async (nombre, args) => {
       assert.equal(nombre, "registrar_pedido_desde_checkout");
       llamadas.push(args);
-      return { data: errorRpc ? null : [{ pedido_id: "pedido" }], error: errorRpc };
+      const importes = descuentos.calcularDescuentoPorcentual({
+        subtotal: args.p_subtotal, costoEnvio: args.p_costo_envio, porcentaje: porcentaje ?? 0,
+      });
+      return { data: errorRpc ? null : respuestaRpc ?? [{
+        pedido_id: "pedido", numero_pedido: numeroPedido, subtotal: importes.subtotal,
+        descuento: importes.descuento, costo_envio: importes.costoEnvio, total: importes.total,
+        promocion_id: porcentaje === null ? null : "promocion",
+        promocion_nombre: porcentaje === null ? null : "Descuento web",
+        promocion_porcentaje: porcentaje,
+      }], error: errorRpc };
     },
     from: tabla => {
       assert.equal(tabla, "pedidos");
@@ -95,6 +107,7 @@ function preparar({
     "@/lib/catalogo/configurador": { limitesGrupo: () => ({ minimo: 0, maximo: 1 }) },
     "@/lib/comercio/horarios": { obtenerEstadoApertura: () => ({ abierto, horaApertura: "19:00" }) },
     "@/lib/comercio/tiempos": tiempos,
+    "@/lib/comercio/descuentos": descuentos,
     "@/lib/checkout/tipos": checkout,
     "@/lib/checkout/celular": celular,
     "@/lib/supabase/server": { createClient: async () => sesion },
@@ -219,7 +232,7 @@ test("Errores de configuración y RPC pendiente son explícitos, sin reintentos 
 
   const rpc = preparar({ errorRpc: { ...error, code: "PGRST202", message: "Firma no encontrada" } });
   await assert.rejects(rpc.registrar(inputBase), fallo =>
-    fallo.code === "REQUIERE_RPC" && /migración de PIA-3/.test(fallo.message));
+    fallo.code === "REQUIERE_RPC" && /PIA-4/.test(fallo.message));
   assert.equal(rpc.llamadas.length, 1);
 });
 
@@ -242,13 +255,128 @@ test("Conserva el conflicto atómico de disponibilidad que devuelve la RPC", asy
     error.status === 409 && error.code === "CONFLICTO_DATOS");
 });
 
-test("Rechaza importes de catálogo inválidos y totales fuera del rango antes de la RPC", async () => {
+test("Rechaza importes de catálogo inválidos y subtotales fuera del rango antes de la RPC", async () => {
   for (const opciones of [
     { precio: Infinity }, { precio: -1 }, { adicional: NaN }, { adicional: -1 },
-    { precio: 9999999999.99 }, { costo: 9999999999.99 },
+    { precio: 9999999999.99 },
   ]) {
     const { registrar, llamadas } = preparar(opciones);
     await assert.rejects(registrar(inputBase), error => error.status >= 400);
     assert.equal(llamadas.length, 0);
+  }
+});
+
+test("Descuentos confirmados por SQL en efectivo, POS y retiro, sin aceptar descuentos del navegador", async () => {
+  for (const [tipoEntrega, metodoPago] of [["delivery", "efectivo"], ["delivery", "tarjeta_pos"], ["retiro", "pago_en_local"]]) {
+    for (const porcentaje of [null, 0, 10, 100]) {
+      const { registrar, llamadas } = preparar({ porcentaje });
+      const resultado = await registrar({
+        ...inputBase, metodoPago, descuento: 999, porcentaje: 100, promocionId: "ajena",
+        checkout: { ...inputBase.checkout, tipoEntrega },
+      });
+      const esperado = descuentos.calcularDescuentoPorcentual({
+        subtotal: 0.9, costoEnvio: tipoEntrega === "retiro" ? 0 : 25.15, porcentaje: porcentaje ?? 0,
+      });
+      assert.equal(resultado.descuento, esperado.descuento);
+      assert.equal(resultado.total, esperado.total);
+      assert.equal(resultado.promocion?.porcentaje ?? null, porcentaje);
+      assert.equal(Object.keys(llamadas[0]).length, 12);
+      assert.equal(llamadas[0].p_descuento, undefined);
+    }
+  }
+});
+
+test("Usa importes de la RPC, admite numeric como texto y redondeo de mitades", async () => {
+  const respuesta = [{
+    pedido_id: "pedido", numero_pedido: "42", subtotal: "0.15", descuento: "0.02",
+    costo_envio: "25.15", total: "25.28", promocion_id: "promocion",
+    promocion_nombre: "Descuento web", promocion_porcentaje: "10",
+  }];
+  const { registrar } = preparar({ precio: 0.05, adicional: 0, respuestaRpc: respuesta });
+  const resultado = await registrar(inputBase);
+  assert.equal(resultado.total, 25.28);
+  assert.equal(resultado.descuento, 0.02);
+  assert.equal(resultado.numeroPedido, 42);
+});
+
+test("No rechaza la suma bruta antes de SQL si el descuento deja un total válido", async () => {
+  const { registrar, llamadas } = preparar({ porcentaje: 100, costo: 9999999999.99 });
+  const resultado = await registrar(inputBase);
+  assert.equal(llamadas.length, 1);
+  assert.equal(resultado.total, 9999999999.99);
+});
+
+test("Respuesta inválida de un pedido creado conserva ID, no inventa importes ni reintenta", async () => {
+  const fila = {
+    pedido_id: "pedido", numero_pedido: 42, subtotal: 0.9, descuento: 0.09,
+    costo_envio: 25.15, total: 25.96,
+    promocion_id: "promocion", promocion_nombre: "Descuento web", promocion_porcentaje: 10,
+  };
+  for (const cambio of [
+    { subtotal: null }, { descuento: NaN }, { descuento: -1 }, { descuento: 0.091 },
+    { costo_envio: Infinity }, { total: "NaN" }, { total: 26.05 }, { total: null },
+    { descuento: 0.1, total: 25.95 }, { subtotal: true }, { total: "" },
+    { promocion_porcentaje: 10.5 }, { promocion_id: null }, { promocion_nombre: "" },
+    { promocion_porcentaje: 101 }, { subtotal: 1 }, { costo_envio: 0 },
+  ]) {
+    const { registrar, llamadas } = preparar({ respuestaRpc: [{ ...fila, ...cambio }] });
+    const resultado = await registrar(inputBase);
+    assert.equal(resultado.pedidoId, "pedido");
+    assert.equal(resultado.code, "IMPORTES_NO_CONFIRMADOS");
+    for (const clave of ["subtotal", "descuento", "costoEnvio", "total"]) assert.equal(resultado[clave], null);
+    assert.match(resultado.advertencia, /registrado/);
+    assert.equal(llamadas.length, 1);
+  }
+  for (const respuestaRpc of [[{ pedido_id: "pedido" }], [fila, fila]]) {
+    const { registrar } = preparar({ respuestaRpc });
+    assert.equal((await registrar(inputBase)).code, "IMPORTES_NO_CONFIRMADOS");
+  }
+});
+
+test("RPC sin identificador falla explícitamente, sin inventar éxito", async () => {
+  for (const respuestaRpc of [[], [{}], [{ pedido_id: "" }], [{ pedido_id: 1 }]]) {
+    const { registrar } = preparar({ respuestaRpc });
+    await assert.rejects(registrar(inputBase), error => error.code === "BASE_DATOS" && /Consultá al local/.test(error.message));
+  }
+});
+
+test("Errores transaccionales de importes o promoción no se reintentan", async () => {
+  for (const code of ["22023", "P0002"]) {
+    const { registrar, llamadas } = preparar({
+      errorRpc: { code, message: "Error SQL", details: null, hint: null },
+    });
+
+    test("Endpoint devuelve 201 con los importes confirmados, incluso total cero o advertencia explícita", async () => {
+      for (const respuestaRpc of [undefined, [{ pedido_id: "pedido", numero_pedido: 42 }]]) {
+        const { registrar } = preparar({ porcentaje: 100, respuestaRpc });
+        const ruta = cargar("src/app/api/pedidos/registrar/route.ts", {
+          "next/server": { NextResponse: { json: (body, opciones) => ({ body, status: opciones.status }) } },
+          "@/lib/pedidos/registrar": {
+            PedidoError: class extends Error {},
+            validarYRegistrarPedido: registrar,
+          },
+        });
+        const resultado = await ruta.POST({
+          method: "POST",
+          headers: { get: clave => clave === "content-type" ? "application/json" : null },
+          text: async () => JSON.stringify({
+            ...inputBase, metodoPago: "pago_en_local",
+            checkout: { ...inputBase.checkout, tipoEntrega: "retiro" },
+          }),
+        });
+        assert.equal(resultado.status, 201);
+        assert.equal(resultado.body.pedidoId, "pedido");
+        if (respuestaRpc) {
+          assert.equal(resultado.body.total, null);
+          assert.equal(resultado.body.code, "IMPORTES_NO_CONFIRMADOS");
+          assert.match(resultado.body.advertencia, /registrado/);
+        } else {
+          assert.equal(resultado.body.total, 0);
+          assert.equal(resultado.body.descuento, 0.9);
+        }
+      }
+    });
+    await assert.rejects(registrar(inputBase), error => error.code === "CONFLICTO_DATOS" && error.status === 409);
+    assert.equal(llamadas.length, 1);
   }
 });

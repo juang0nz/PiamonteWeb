@@ -47,7 +47,6 @@ export type PedidoCalculado = {
   comercioId: string;
   subtotal: number;
   costoEnvio: number;
-  total: number;
   items: ItemPedidoCalculado[];
 };
 
@@ -59,3 +58,24 @@ export type ResultadoRegistroPedido = {
   costoEnvio: number;
   total: number;
 };
+
+export type ResultadoRegistroPedidoConfirmado = ResultadoRegistroPedido & {
+  descuento: number;
+  promocion: { id: string; nombre: string; porcentaje: number } | null;
+};
+
+export type PedidoRegistradoSinImportes = {
+  pedidoId: string;
+  numeroPedido: number | null;
+  subtotal: null;
+  descuento: null;
+  costoEnvio: null;
+  total: null;
+  promocion: null;
+  code: "IMPORTES_NO_CONFIRMADOS";
+  advertencia: string;
+};
+
+export type ResultadoRegistroServidor =
+  | ResultadoRegistroPedidoConfirmado
+  | PedidoRegistradoSinImportes;
